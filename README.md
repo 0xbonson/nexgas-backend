@@ -268,3 +268,34 @@ npm test
    - Berupa Next.js static export yang dapat di-hosting di Vercel atau GitHub Pages.
    - Atur `NEXT_PUBLIC_API_URL` ke domain backend HTTPS publik (misal: `https://api.nex-gas.id`).
    - Atur `NEXT_PUBLIC_WS_URL` ke WebSocket WSS publik (misal: `wss://api.nex-gas.id/ws`).
+
+---
+
+## 12. Deploy (Docker / Railway / VPS)
+
+Repo ini menyertakan `Dockerfile` multi-stage (build TypeScript + `better-sqlite3`,
+lalu runtime slim) dan `.dockerignore`.
+
+```bash
+# build & jalankan lokal
+docker build -t nexgas-backend .
+docker run -p 5001:5001 --env-file .env -v nexgas-data:/data nexgas-backend
+
+# cek
+curl http://localhost:5001/health
+curl http://localhost:5001/health/ready
+```
+
+Variabel wajib di production:
+
+| Variabel | Catatan |
+| --- | --- |
+| `JWT_SECRET` | minimal 32 karakter, **tidak boleh** default dev key |
+| `CORS_ALLOWED_ORIGINS` | harus memuat origin frontend, mis. `https://nex-gas.vercel.app` |
+| `MQTT_HOST` / `MQTT_USERNAME` / `MQTT_PASSWORD` | kredensial HiveMQ Cloud |
+| `PUBLIC_MQTT_TEST_MODE` | `true` = semua perintah ditolak (mode uji publik) |
+| `DB_PATH` | arahkan ke volume persisten (`/data/nexgas.sqlite` di image) |
+
+Railway: buat project dari repo GitHub ini → service otomatis memakai `Dockerfile`,
+tambahkan **Volume** ke `/data`, isi env di atas, lalu generate domain publik.
+Backend menyajikan REST dan WebSocket (`/ws`) pada port yang sama.
