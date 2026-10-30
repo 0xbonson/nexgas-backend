@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { DeviceStatePayload, NormalizedDeviceState } from "../types/index.js";
 
+import { isSyntheticDevice } from "./telemetry.schema.js";
+
 export const rawStateSchema = z.object({
   valveOpen: z.boolean(),
   valveMode: z.enum(["auto", "manual"]),
@@ -20,9 +22,12 @@ export function normalizeDeviceState(
   raw: DeviceStatePayload,
   receivedAt: Date = new Date(),
 ): NormalizedDeviceState {
+  const isSynthetic = isSyntheticDevice(deviceId);
   return {
     ...raw,
     deviceId,
+    isSynthetic,
+    dataSource: isSynthetic ? "SYNTHETIC_DEMO" : "REAL_HARDWARE",
     receivedAt: receivedAt.toISOString(),
   };
 }

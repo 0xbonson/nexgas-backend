@@ -7,6 +7,8 @@ import { TelemetryRepository } from "../src/db/repositories/telemetry.repository
 import { StateRepository } from "../src/db/repositories/state.repository.js";
 import { StatusRepository } from "../src/db/repositories/status.repository.js";
 import { EventRepository } from "../src/db/repositories/event.repository.js";
+import { UserRepository } from "../src/db/repositories/user.repository.js";
+import { signAccessToken } from "../src/utils/jwt.js";
 import { NexGasMqttService } from "../src/mqtt/client.js";
 import { resetCommandRateLimits } from "../src/api/middleware/rate-limit.js";
 import { Database } from "better-sqlite3";
@@ -23,6 +25,7 @@ describe("REST API Endpoints", () => {
   let db: Database;
   let server: Server;
   let baseUrl: string;
+  let adminToken: string;
   let mockMqttClient: MockMqttClient;
   let mqttService: NexGasMqttService;
   let repos: {
@@ -31,6 +34,14 @@ describe("REST API Endpoints", () => {
     status: StatusRepository;
     event: EventRepository;
   };
+
+  function authedFetch(url: string, options: RequestInit = {}) {
+    const headers = new Headers(options.headers || {});
+    if (!headers.has("Authorization")) {
+      headers.set("Authorization", `Bearer ${adminToken}`);
+    }
+    return fetch(url, { ...options, headers });
+  }
 
   beforeAll(async () => {
     db = createDatabase({ inMemory: true });
@@ -43,6 +54,19 @@ describe("REST API Endpoints", () => {
       status: new StatusRepository(db),
       event: new EventRepository(db),
     };
+
+    const userRepo = new UserRepository(db);
+    const admin = userRepo.createUser({
+      username: "rest_admin",
+      passwordHash: "dummy",
+      role: "admin",
+      isActive: true,
+    });
+    adminToken = await signAccessToken({
+      sub: String(admin.id),
+      username: admin.username,
+      role: "admin",
+    });
 
     mockMqttClient = new MockMqttClient();
     mqttService = new NexGasMqttService(mockMqttClient as unknown as MqttClient);
@@ -75,7 +99,7 @@ describe("REST API Endpoints", () => {
   // --------------------------------------------------------------------------
 
   it("GET /health returns liveness status and uptime", async () => {
-    const res = await fetch(`${baseUrl}/health`);
+    const res = await authedFetch(`${baseUrl}/health`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as any;
     expect(body.status).toBe("ok");
@@ -84,7 +108,7 @@ describe("REST API Endpoints", () => {
   });
 
   it("GET /health/ready returns readiness check and topic listing", async () => {
-    const res = await fetch(`${baseUrl}/health/ready`);
+    const res = await authedFetch(`${baseUrl}/health/ready`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as any;
     expect(body.ready).toBe(true);
@@ -93,7 +117,7 @@ describe("REST API Endpoints", () => {
   });
 
   it("GET /api/config returns safe config with masked passwords", async () => {
-    const res = await fetch(`${baseUrl}/api/config`);
+    const res = await authedFetch(`${baseUrl}/api/config`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as any;
     expect(body.PORT).toBeDefined();
@@ -108,12 +132,12 @@ describe("REST API Endpoints", () => {
 
   describe("GET /api/telemetry/latest", () => {
     it("returns 400 for invalid device ID format", async () => {
-      const res = await fetch(`${baseUrl}/api/telemetry/latest?deviceId=invalid/id!`);
+      const res = await authedFetch(`${baseUrl}/api/telemetry/latest?deviceId=invalid/id!`);
       expect(res.status).toBe(400);
     });
 
     it("returns 404 when no telemetry has been recorded yet", async () => {
-      const res = await fetch(`${baseUrl}/api/telemetry/latest?deviceId=nexgas-999`);
+      const res = await authedFetch(`${baseUrl}/api/telemetry/latest?deviceId=nexgas-999`);
       expect(res.status).toBe(404);
       const body = (await res.json()) as any;
       expect(body.error).toBe("Not Found");
@@ -144,7 +168,7 @@ describe("REST API Endpoints", () => {
         raw: {} as any,
       });
 
-      const res = await fetch(`${baseUrl}/api/telemetry/latest?deviceId=nexgas-001`);
+      const res = await authedFetch(`${baseUrl}/api/telemetry/latest?deviceId=nexgas-001`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as any;
       expect(body.deviceId).toBe("nexgas-001");
@@ -157,7 +181,7 @@ describe("REST API Endpoints", () => {
 
   describe("GET /api/state", () => {
     it("returns 404 when device state is missing", async () => {
-      const res = await fetch(`${baseUrl}/api/state?deviceId=nexgas-999`);
+      const res = await authedFetch(`${baseUrl}/api/state?deviceId=nexgas-999`);
       expect(res.status).toBe(404);
     });
 
@@ -178,7 +202,7 @@ describe("REST API Endpoints", () => {
         receivedAt: "2026-10-30T10:00:00.000Z",
       });
 
-      const res = await fetch(`${baseUrl}/api/state?deviceId=nexgas-001`);
+      const res = await authedFetch(`${baseUrl}/api/state?deviceId=nexgas-001`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as any;
       expect(body.state.valveMode).toBe("auto");
@@ -190,7 +214,7 @@ describe("REST API Endpoints", () => {
 
   describe("GET /api/status", () => {
     it("returns 404 when device status is missing", async () => {
-      const res = await fetch(`${baseUrl}/api/status?deviceId=nexgas-999`);
+      const res = await authedFetch(`${baseUrl}/api/status?deviceId=nexgas-999`);
       expect(res.status).toBe(404);
     });
 
@@ -201,7 +225,7 @@ describe("REST API Endpoints", () => {
         receivedAt: "2026-10-30T10:00:00.000Z",
       });
 
-      const res = await fetch(`${baseUrl}/api/status?deviceId=nexgas-001`);
+      const res = await authedFetch(`${baseUrl}/api/status?deviceId=nexgas-001`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as any;
       expect(body.status).toBe("online");
@@ -214,7 +238,7 @@ describe("REST API Endpoints", () => {
 
   describe("History Endpoints", () => {
     it("GET /api/history/telemetry supports pagination and query options", async () => {
-      const res = await fetch(`${baseUrl}/api/history/telemetry?deviceId=nexgas-001&limit=10&offset=0`);
+      const res = await authedFetch(`${baseUrl}/api/history/telemetry?deviceId=nexgas-001&limit=10&offset=0`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as any;
       expect(Array.isArray(body.items)).toBe(true);
@@ -223,7 +247,7 @@ describe("REST API Endpoints", () => {
     });
 
     it("GET /api/history/telemetry returns 400 on invalid query values", async () => {
-      const res = await fetch(`${baseUrl}/api/history/telemetry?limit=-1`);
+      const res = await authedFetch(`${baseUrl}/api/history/telemetry?limit=-1`);
       expect(res.status).toBe(400);
     });
 
@@ -239,7 +263,7 @@ describe("REST API Endpoints", () => {
         raw: {} as any,
       });
 
-      const res = await fetch(`${baseUrl}/api/history/events?deviceId=nexgas-001`);
+      const res = await authedFetch(`${baseUrl}/api/history/events?deviceId=nexgas-001`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as any;
       expect(body.items.length).toBeGreaterThanOrEqual(1);
@@ -248,14 +272,14 @@ describe("REST API Endpoints", () => {
     });
 
     it("GET /api/history/state returns state transitions", async () => {
-      const res = await fetch(`${baseUrl}/api/history/state?deviceId=nexgas-001`);
+      const res = await authedFetch(`${baseUrl}/api/history/state?deviceId=nexgas-001`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as any;
       expect(body.items.length).toBeGreaterThanOrEqual(1);
     });
 
     it("GET /api/history/status returns status history", async () => {
-      const res = await fetch(`${baseUrl}/api/history/status?deviceId=nexgas-001`);
+      const res = await authedFetch(`${baseUrl}/api/history/status?deviceId=nexgas-001`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as any;
       expect(body.items.length).toBeGreaterThanOrEqual(1);
@@ -268,7 +292,7 @@ describe("REST API Endpoints", () => {
 
   describe("POST /api/command", () => {
     it("returns 400 on missing or invalid command payload", async () => {
-      const res = await fetch(`${baseUrl}/api/command`, {
+      const res = await authedFetch(`${baseUrl}/api/command`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
@@ -277,7 +301,7 @@ describe("REST API Endpoints", () => {
     });
 
     it("returns 400 on unsupported command structure", async () => {
-      const res = await fetch(`${baseUrl}/api/command`, {
+      const res = await authedFetch(`${baseUrl}/api/command`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -290,7 +314,7 @@ describe("REST API Endpoints", () => {
 
     it("returns 503 when MQTT client is offline", async () => {
       // mock client is not connected
-      const res = await fetch(`${baseUrl}/api/command`, {
+      const res = await authedFetch(`${baseUrl}/api/command`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -307,7 +331,7 @@ describe("REST API Endpoints", () => {
       // Connect mock client
       mockMqttClient.emit("connect");
 
-      const res = await fetch(`${baseUrl}/api/command`, {
+      const res = await authedFetch(`${baseUrl}/api/command`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -330,7 +354,7 @@ describe("REST API Endpoints", () => {
 
       // Send 10 commands (the maximum allowed)
       for (let i = 0; i < 10; i++) {
-        await fetch(`${baseUrl}/api/command`, {
+        await authedFetch(`${baseUrl}/api/command`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -341,7 +365,7 @@ describe("REST API Endpoints", () => {
       }
 
       // 11th command must trigger 429 Too Many Requests
-      const res = await fetch(`${baseUrl}/api/command`, {
+      const res = await authedFetch(`${baseUrl}/api/command`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

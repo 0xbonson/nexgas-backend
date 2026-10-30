@@ -14,9 +14,9 @@ describe("Database Migrations", () => {
     closeDatabase(db);
   });
 
-  it("applies migration 001 and creates all required tables and indexes", () => {
+  it("applies migrations 001 and 002 and creates all required tables and indexes", () => {
     const result = runMigrations(db);
-    expect(result.applied).toBe(1);
+    expect(result.applied).toBe(2);
 
     const tables = db
       .prepare(
@@ -33,18 +33,22 @@ describe("Database Migrations", () => {
     expect(tableNames).toContain("device_current_status");
     expect(tableNames).toContain("status_history");
     expect(tableNames).toContain("event_history");
+    expect(tableNames).toContain("users");
+    expect(tableNames).toContain("refresh_sessions");
+    expect(tableNames).toContain("audit_logs");
 
-    // Verify migration record
+    // Verify migration records
     const records = db
-      .prepare("SELECT * FROM schema_migrations WHERE version = 1")
+      .prepare("SELECT * FROM schema_migrations ORDER BY version ASC")
       .all() as { version: number; name: string }[];
-    expect(records.length).toBe(1);
+    expect(records.length).toBe(2);
     expect(records[0].name).toBe("001_initial_schema");
+    expect(records[1].name).toBe("002_auth_and_audit");
   });
 
   it("is safe and idempotent: re-running migrations applies 0 new migrations", () => {
     const firstRun = runMigrations(db);
-    expect(firstRun.applied).toBe(1);
+    expect(firstRun.applied).toBe(2);
 
     const secondRun = runMigrations(db);
     expect(secondRun.applied).toBe(0);
@@ -52,6 +56,6 @@ describe("Database Migrations", () => {
     const records = db
       .prepare("SELECT COUNT(*) as count FROM schema_migrations")
       .get() as { count: number };
-    expect(records.count).toBe(1);
+    expect(records.count).toBe(2);
   });
 });

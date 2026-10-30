@@ -5,6 +5,9 @@ export * from "./repositories/telemetry.repository.js";
 export * from "./repositories/state.repository.js";
 export * from "./repositories/status.repository.js";
 export * from "./repositories/event.repository.js";
+export * from "./repositories/user.repository.js";
+export * from "./repositories/refresh-session.repository.js";
+export * from "./repositories/audit.repository.js";
 export * from "./bridge.js";
 
 import { getDatabase } from "./database.js";
@@ -13,6 +16,9 @@ import { TelemetryRepository } from "./repositories/telemetry.repository.js";
 import { StateRepository } from "./repositories/state.repository.js";
 import { StatusRepository } from "./repositories/status.repository.js";
 import { EventRepository } from "./repositories/event.repository.js";
+import { UserRepository } from "./repositories/user.repository.js";
+import { RefreshSessionRepository } from "./repositories/refresh-session.repository.js";
+import { AuditRepository } from "./repositories/audit.repository.js";
 import { MqttDatabaseBridge, DatabaseRepositories } from "./bridge.js";
 import { NexGasMqttService, mqttService } from "../mqtt/client.js";
 
@@ -36,6 +42,9 @@ export function initializeDatabaseLayer(
     state: new StateRepository(db),
     status: new StatusRepository(db),
     event: new EventRepository(db),
+    user: new UserRepository(db),
+    refreshSession: new RefreshSessionRepository(db),
+    audit: new AuditRepository(db),
   };
 
   defaultBridge = new MqttDatabaseBridge(service, defaultRepositories);

@@ -5,6 +5,7 @@ import {
   EventSeverity,
 } from "../../types/index.js";
 import { sanitize } from "../../utils/logger.js";
+import { isSyntheticDevice } from "../../validation/telemetry.schema.js";
 
 export interface EventQueryOptions {
   deviceId?: string;
@@ -131,8 +132,12 @@ export class EventRepository {
       }
     }
 
+    const isSynthetic = isSyntheticDevice(row.device_id);
+
     return {
       deviceId: row.device_id,
+      isSynthetic,
+      dataSource: isSynthetic ? "SYNTHETIC_DEMO" : "REAL_HARDWARE",
       receivedAt: row.received_at,
       deviceTimestamp: row.device_timestamp,
       uptimeMs: row.uptime_ms,

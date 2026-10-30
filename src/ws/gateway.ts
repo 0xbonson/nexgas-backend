@@ -22,6 +22,8 @@ export type WsBroadcastMessage =
   | {
       type: "telemetry";
       deviceId: string;
+      isSynthetic: boolean;
+      dataSource: "REAL_HARDWARE" | "SYNTHETIC_DEMO";
       receivedAt: string;
       data: NormalizedTelemetry;
       frontend: ReturnType<typeof formatTelemetryForFrontend>;
@@ -29,6 +31,8 @@ export type WsBroadcastMessage =
   | {
       type: "state";
       deviceId: string;
+      isSynthetic: boolean;
+      dataSource: "REAL_HARDWARE" | "SYNTHETIC_DEMO";
       receivedAt: string;
       data: NormalizedDeviceState;
       frontend: ReturnType<typeof formatSystemStateForFrontend>;
@@ -36,12 +40,16 @@ export type WsBroadcastMessage =
   | {
       type: "status";
       deviceId: string;
+      isSynthetic: boolean;
+      dataSource: "REAL_HARDWARE" | "SYNTHETIC_DEMO";
       receivedAt: string;
       data: NormalizedDeviceStatus;
     }
   | {
       type: "event";
       deviceId: string;
+      isSynthetic: boolean;
+      dataSource: "REAL_HARDWARE" | "SYNTHETIC_DEMO";
       receivedAt: string;
       data: NormalizedDeviceEvent;
       notification: ReturnType<typeof formatEventToAppNotification>;
@@ -64,6 +72,8 @@ export class NexGasWebSocketGateway {
       this.broadcast({
         type: "telemetry",
         deviceId: t.deviceId,
+        isSynthetic: t.isSynthetic,
+        dataSource: t.dataSource,
         receivedAt: t.receivedAt,
         data: t,
         frontend: formatTelemetryForFrontend(t),
@@ -74,6 +84,8 @@ export class NexGasWebSocketGateway {
       this.broadcast({
         type: "state",
         deviceId: s.deviceId,
+        isSynthetic: s.isSynthetic,
+        dataSource: s.dataSource,
         receivedAt: s.receivedAt,
         data: s,
         frontend: formatSystemStateForFrontend(s),
@@ -84,6 +96,8 @@ export class NexGasWebSocketGateway {
       this.broadcast({
         type: "status",
         deviceId: st.deviceId,
+        isSynthetic: st.isSynthetic,
+        dataSource: st.dataSource,
         receivedAt: st.receivedAt,
         data: st,
       });
@@ -93,6 +107,8 @@ export class NexGasWebSocketGateway {
       this.broadcast({
         type: "event",
         deviceId: e.deviceId,
+        isSynthetic: e.isSynthetic,
+        dataSource: e.dataSource,
         receivedAt: e.receivedAt,
         data: e,
         notification: formatEventToAppNotification(e),

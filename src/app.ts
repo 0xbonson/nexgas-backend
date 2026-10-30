@@ -1,4 +1,5 @@
 import express, { Express, Request, Response, NextFunction } from "express";
+import cookieParser from "cookie-parser";
 import { mqttService, NexGasMqttService } from "./mqtt/client.js";
 import { corsMiddleware } from "./api/middleware/cors.js";
 import { createApiRouter } from "./api/routes.js";
@@ -10,6 +11,7 @@ export function createApp(service: NexGasMqttService = mqttService): Express {
   // Security & parsing middleware
   app.use(corsMiddleware);
   app.use(express.json({ limit: "100kb" }));
+  app.use(cookieParser());
 
   // Mount API router
   app.use(createApiRouter(service));

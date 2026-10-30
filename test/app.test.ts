@@ -1,12 +1,36 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { createApp } from '../src/app.js';
 import { Server } from 'http';
+import { createDatabase, closeDatabase, setDatabase } from '../src/db/database.js';
+import { runMigrations } from '../src/db/migrations/index.js';
+import { UserRepository } from '../src/db/repositories/user.repository.js';
+import { signAccessToken } from '../src/utils/jwt.js';
+import { Database } from 'better-sqlite3';
 
 describe('Express 5 App Scaffold & Health Endpoints', () => {
   let server: Server;
   let baseUrl: string;
+  let db: Database;
+  let adminToken: string;
 
   beforeAll(async () => {
+    db = createDatabase({ inMemory: true });
+    runMigrations(db);
+    setDatabase(db);
+
+    const userRepo = new UserRepository(db);
+    const admin = userRepo.createUser({
+      username: 'app_admin',
+      passwordHash: 'dummy',
+      role: 'admin',
+      isActive: true,
+    });
+    adminToken = await signAccessToken({
+      sub: String(admin.id),
+      username: admin.username,
+      role: 'admin',
+    });
+
     const app = createApp();
     await new Promise<void>((resolve) => {
       server = app.listen(0, () => {
@@ -23,6 +47,8 @@ describe('Express 5 App Scaffold & Health Endpoints', () => {
     await new Promise<void>((resolve) => {
       server.close(() => resolve());
     });
+    closeDatabase(db);
+    setDatabase(null);
   });
 
   it('GET /health returns 200 OK with uptime and status', async () => {
@@ -46,7 +72,9 @@ describe('Express 5 App Scaffold & Health Endpoints', () => {
   });
 
   it('GET /api/config returns sanitized configuration without exposing passwords', async () => {
-    const res = await fetch(`${baseUrl}/api/config`);
+    const res = await fetch(`${baseUrl}/api/config`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
     expect(res.status).toBe(200);
 
     const body = (await res.json()) as any;

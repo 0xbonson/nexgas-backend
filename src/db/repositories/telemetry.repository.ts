@@ -1,6 +1,7 @@
 import { Database, Statement } from "better-sqlite3";
 import { NormalizedTelemetry, RawTelemetryPayload } from "../../types/index.js";
 import { sanitize } from "../../utils/logger.js";
+import { isSyntheticDevice } from "../../validation/telemetry.schema.js";
 
 export interface TelemetryQueryOptions {
   deviceId?: string;
@@ -186,8 +187,12 @@ export class TelemetryRepository {
       }
     }
 
+    const isSynthetic = isSyntheticDevice(row.device_id);
+
     return {
       deviceId: row.device_id,
+      isSynthetic,
+      dataSource: isSynthetic ? "SYNTHETIC_DEMO" : "REAL_HARDWARE",
       receivedAt: row.received_at,
       deviceTimestamp: row.device_timestamp,
       rawTimestamp: row.raw_timestamp,

@@ -9,6 +9,8 @@ import { TelemetryRepository } from "../src/db/repositories/telemetry.repository
 import { StateRepository } from "../src/db/repositories/state.repository.js";
 import { StatusRepository } from "../src/db/repositories/status.repository.js";
 import { EventRepository } from "../src/db/repositories/event.repository.js";
+import { UserRepository } from "../src/db/repositories/user.repository.js";
+import { signAccessToken } from "../src/utils/jwt.js";
 import { NexGasMqttService } from "../src/mqtt/client.js";
 import { NexGasWebSocketGateway } from "../src/ws/gateway.js";
 import { resetCommandRateLimits } from "../src/api/middleware/rate-limit.js";
@@ -36,6 +38,7 @@ describe("End-to-End System Integration (Phase 6B)", () => {
   let server: Server;
   let baseUrl: string;
   let wsUrl: string;
+  let adminToken: string;
   let mockMqttClient: MockMqttClient;
   let mqttService: NexGasMqttService;
   let wsGateway: NexGasWebSocketGateway;
@@ -46,6 +49,14 @@ describe("End-to-End System Integration (Phase 6B)", () => {
     status: StatusRepository;
     event: EventRepository;
   };
+
+  function authedFetch(url: string, options: RequestInit = {}) {
+    const headers = new Headers(options.headers || {});
+    if (!headers.has("Authorization")) {
+      headers.set("Authorization", `Bearer ${adminToken}`);
+    }
+    return fetch(url, { ...options, headers });
+  }
 
   beforeAll(async () => {
     db = createDatabase({ inMemory: true });
@@ -58,6 +69,19 @@ describe("End-to-End System Integration (Phase 6B)", () => {
       status: new StatusRepository(db),
       event: new EventRepository(db),
     };
+
+    const userRepo = new UserRepository(db);
+    const admin = userRepo.createUser({
+      username: "e2e_admin",
+      passwordHash: "dummy",
+      role: "admin",
+      isActive: true,
+    });
+    adminToken = await signAccessToken({
+      sub: String(admin.id),
+      username: admin.username,
+      role: "admin",
+    });
 
     mockMqttClient = new MockMqttClient();
     mqttService = new NexGasMqttService(mockMqttClient as unknown as MqttClient);
@@ -139,7 +163,7 @@ describe("End-to-End System Integration (Phase 6B)", () => {
             expect(msg.frontend.h2sAfter).toBe(2.3);
             expect(msg.frontend.ch4).toBe(64.5);
 
-            const res = await fetch(`${baseUrl}/api/telemetry/latest?deviceId=nexgas-001`);
+            const res = await authedFetch(`${baseUrl}/api/telemetry/latest?deviceId=nexgas-001`);
             expect(res.status).toBe(200);
             const body = (await res.json()) as any;
             expect(body.deviceId).toBe("nexgas-001");
@@ -193,7 +217,7 @@ describe("End-to-End System Integration (Phase 6B)", () => {
             expect(msg.data.valveOpen).toBe(false);
             expect(msg.frontend.filterHealth).toBe(94);
 
-            const res = await fetch(`${baseUrl}/api/state?deviceId=nexgas-001`);
+            const res = await authedFetch(`${baseUrl}/api/state?deviceId=nexgas-001`);
             expect(res.status).toBe(200);
             const body = (await res.json()) as any;
             expect(body.state.valveMode).toBe("auto");
@@ -240,7 +264,7 @@ describe("End-to-End System Integration (Phase 6B)", () => {
             expect(msg.notification.badge).toBe("WASPADA");
             expect(msg.notification.title).toBe("VALVE CLOSED LEAK");
 
-            const res = await fetch(`${baseUrl}/api/history/events?deviceId=nexgas-001&severity=waspada`);
+            const res = await authedFetch(`${baseUrl}/api/history/events?deviceId=nexgas-001&severity=waspada`);
             expect(res.status).toBe(200);
             const history = (await res.json()) as any;
             expect(history.items.length).toBeGreaterThanOrEqual(1);
@@ -263,7 +287,7 @@ describe("End-to-End System Integration (Phase 6B)", () => {
   // 4. COMMAND DISPATCH FLOW: REST -> MQTT Publish -> Honest Execution Status
   // ==========================================================================
   it("E2E: Dispatches command via POST /api/command, publishes to MQTT topic, and returns honest pending disclaimer", async () => {
-    const res = await fetch(`${baseUrl}/api/command`, {
+    const res = await authedFetch(`${baseUrl}/api/command`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -284,7 +308,7 @@ describe("End-to-End System Integration (Phase 6B)", () => {
     expect(JSON.parse(mockMqttClient.publishedMessages[0].message)).toEqual({ valve: "close" });
 
     // Verify backend did not optimistically mutate state
-    const stateRes = await fetch(`${baseUrl}/api/state?deviceId=nexgas-001`);
+    const stateRes = await authedFetch(`${baseUrl}/api/state?deviceId=nexgas-001`);
     const stateBody = (await stateRes.json()) as any;
     expect(stateBody.state.valveMode).toBe("auto");
   });
@@ -295,7 +319,7 @@ describe("End-to-End System Integration (Phase 6B)", () => {
   it("E2E: Rejects command when broker is offline with HTTP 503", async () => {
     mockMqttClient.emit("close");
 
-    const res = await fetch(`${baseUrl}/api/command`, {
+    const res = await authedFetch(`${baseUrl}/api/command`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -313,7 +337,7 @@ describe("End-to-End System Integration (Phase 6B)", () => {
 
   it("E2E: Enforces sliding-window rate limit on commands with HTTP 429", async () => {
     for (let i = 0; i < 10; i++) {
-      const res = await fetch(`${baseUrl}/api/command`, {
+      const res = await authedFetch(`${baseUrl}/api/command`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -324,7 +348,7 @@ describe("End-to-End System Integration (Phase 6B)", () => {
       expect(res.status).toBe(200);
     }
 
-    const blockedRes = await fetch(`${baseUrl}/api/command`, {
+    const blockedRes = await authedFetch(`${baseUrl}/api/command`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -339,7 +363,7 @@ describe("End-to-End System Integration (Phase 6B)", () => {
   });
 
   it("E2E: Rejects invalid or dangerous device ID with HTTP 400", async () => {
-    const res = await fetch(`${baseUrl}/api/command`, {
+    const res = await authedFetch(`${baseUrl}/api/command`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -359,7 +383,7 @@ describe("End-to-End System Integration (Phase 6B)", () => {
   });
 
   it("E2E: Safely handles unrecorded device query with clean 404", async () => {
-    const res = await fetch(`${baseUrl}/api/telemetry/latest?deviceId=nexgas-nonexistent`);
+    const res = await authedFetch(`${baseUrl}/api/telemetry/latest?deviceId=nexgas-nonexistent`);
     expect(res.status).toBe(404);
   });
 });

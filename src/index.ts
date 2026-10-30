@@ -21,8 +21,32 @@ const server = app.listen(config.PORT, () => {
   wsGateway.attach(server, "/ws");
 
   if (config.MQTT_CONNECT_ON_STARTUP) {
-    logger.info("Auto-connecting to MQTT broker on startup...");
-    mqttService.connect();
+    const isPublicMode = Boolean(config.PUBLIC_MQTT_TEST_MODE);
+    const isPlaceholder =
+      !isPublicMode &&
+      (!config.MQTT_HOST ||
+        config.MQTT_HOST.includes("your-cluster-id") ||
+        !config.MQTT_USERNAME ||
+        !config.MQTT_PASSWORD);
+
+    if (isPlaceholder) {
+      logger.warn(
+        "MQTT_CONNECT_ON_STARTUP is enabled, but HiveMQ Cloud credentials (MQTT_HOST, MQTT_USERNAME, MQTT_PASSWORD) are unconfigured placeholders. Backend will remain in standby mode until real credentials are provided in .env.",
+      );
+    } else {
+      if (isPublicMode) {
+        logger.warn(
+          "!!! RUNNING IN PUBLIC_MQTT_TEST_MODE (broker.hivemq.com:1883) !!! Remote actuator commands are disabled for safety.",
+        );
+      }
+      logger.info("Auto-connecting to MQTT broker on startup...", {
+        host: config.MQTT_HOST,
+        port: config.MQTT_PORT,
+        protocol: config.MQTT_PROTOCOL,
+        publicMode: isPublicMode,
+      });
+      mqttService.connect();
+    }
   } else {
     logger.info("MQTT auto-connect on startup is disabled (MQTT_CONNECT_ON_STARTUP=false).");
   }

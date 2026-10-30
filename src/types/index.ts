@@ -38,6 +38,8 @@ export interface RawTelemetryPayload {
   rssi: number;
 }
 
+export type DataSourceType = "REAL_HARDWARE" | "SYNTHETIC_DEMO";
+
 /**
  * Normalized Telemetry Representation used internally by the backend.
  * Readings equal to -1 are normalized to null (unavailable), preventing bogus 0 ppm calculations.
@@ -46,6 +48,8 @@ export interface RawTelemetryPayload {
  */
 export interface NormalizedTelemetry {
   deviceId: string;
+  isSynthetic: boolean;
+  dataSource: DataSourceType;
   receivedAt: string; // ISO 8601 UTC timestamp of backend reception
   deviceTimestamp: string | null; // ISO 8601 UTC timestamp or null if device NTP was 0
   rawTimestamp: number; // Raw ts from payload
@@ -87,6 +91,8 @@ export interface DeviceStatePayload {
 
 export interface NormalizedDeviceState extends DeviceStatePayload {
   deviceId: string;
+  isSynthetic: boolean;
+  dataSource: DataSourceType;
   receivedAt: string;
 }
 
@@ -100,6 +106,8 @@ export interface DeviceStatusPayload {
 export interface NormalizedDeviceStatus {
   deviceId: string;
   status: "online" | "offline";
+  isSynthetic: boolean;
+  dataSource: DataSourceType;
   receivedAt: string;
 }
 
@@ -116,6 +124,8 @@ export interface DeviceEventPayload {
 
 export interface NormalizedDeviceEvent {
   deviceId: string;
+  isSynthetic: boolean;
+  dataSource: DataSourceType;
   receivedAt: string;
   deviceTimestamp: string | null;
   uptimeMs: number;
@@ -135,3 +145,5 @@ export type CommandPayload =
   | { cal_pressure_point: { sensor: "digester" | "collector"; kpa: number } }
   | { cal_mq: { gas: "h2s" | "ch4" | "leak"; ref_ppm: number } }
   | { cal_ph: { ph: number } };
+
+export * from "./auth.js";

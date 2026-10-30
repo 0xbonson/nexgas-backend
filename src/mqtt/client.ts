@@ -31,7 +31,10 @@ export class NexGasMqttService extends EventEmitter {
   constructor(customClient?: MqttClient) {
     super();
     this.currentBackoffMs = config.MQTT_RECONNECT_PERIOD_MS;
-    this.targetTopics = getSubscriptionTopics([config.DEFAULT_DEVICE_ID]);
+    const targetDeviceIds = config.PUBLIC_MQTT_TEST_MODE
+      ? [config.DEFAULT_DEVICE_ID, "demo-synthetic"]
+      : [config.DEFAULT_DEVICE_ID];
+    this.targetTopics = getSubscriptionTopics(targetDeviceIds);
 
     if (customClient) {
       this.attachClient(customClient);
@@ -48,7 +51,7 @@ export class NexGasMqttService extends EventEmitter {
 
     const options: IClientOptions = {
       clientId,
-      protocol: "mqtts",
+      protocol: config.MQTT_PROTOCOL as "mqtts" | "mqtt" | "ws" | "wss",
       port: config.MQTT_PORT,
       host: config.MQTT_HOST,
       username: config.MQTT_USERNAME || undefined,
@@ -57,7 +60,7 @@ export class NexGasMqttService extends EventEmitter {
       keepalive: 60,
       reconnectPeriod: this.currentBackoffMs,
       connectTimeout: config.MQTT_CONNECT_TIMEOUT_MS,
-      rejectUnauthorized: true, // Validate TLS certificates (ISRG Root X1 on HiveMQ Cloud)
+      rejectUnauthorized: config.MQTT_PROTOCOL === "mqtts", // Validate TLS certificates on HiveMQ Cloud TLS
     };
 
     return options;
@@ -208,6 +211,11 @@ export class NexGasMqttService extends EventEmitter {
     deviceId: string,
     command: CommandPayload,
   ): Promise<{ published: boolean; topic: string; payload: CommandPayload }> {
+    if (config.PUBLIC_MQTT_TEST_MODE) {
+      throw new Error(
+        "Cannot publish command: All device commands are strictly disabled in PUBLIC_MQTT_TEST_MODE for safety",
+      );
+    }
     const validated = commandSchema.parse(command);
     const topic = getCommandTopic(deviceId);
 

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DeviceEventPayload, NormalizedDeviceEvent, EventSeverity } from "../types/index.js";
+import { isSyntheticDevice } from "./telemetry.schema.js";
 
 export const eventSeveritySchema = z.enum(["info", "waspada", "bahaya", "jadwal"]);
 
@@ -27,9 +28,12 @@ export function normalizeDeviceEvent(
   // Validate or coerce severity
   const severityParsed = eventSeveritySchema.safeParse(raw.severity.toLowerCase());
   const severity: EventSeverity = severityParsed.success ? severityParsed.data : "info";
+  const isSynthetic = isSyntheticDevice(deviceId);
 
   return {
     deviceId,
+    isSynthetic,
+    dataSource: isSynthetic ? "SYNTHETIC_DEMO" : "REAL_HARDWARE",
     receivedAt: receivedAt.toISOString(),
     deviceTimestamp: normalizeEventTimestamp(raw.ts),
     uptimeMs: raw.uptimeMs,

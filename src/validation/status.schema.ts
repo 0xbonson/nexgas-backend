@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { DeviceStatusPayload, NormalizedDeviceStatus } from "../types/index.js";
 
+import { isSyntheticDevice } from "./telemetry.schema.js";
+
 export const statusStringSchema = z.enum(["online", "offline"]);
 
 export const statusObjectSchema = z.object({
@@ -45,9 +47,12 @@ export function normalizeDeviceStatus(
   payload: DeviceStatusPayload,
   receivedAt: Date = new Date(),
 ): NormalizedDeviceStatus {
+  const isSynthetic = isSyntheticDevice(deviceId);
   return {
     deviceId,
     status: payload.status,
+    isSynthetic,
+    dataSource: isSynthetic ? "SYNTHETIC_DEMO" : "REAL_HARDWARE",
     receivedAt: receivedAt.toISOString(),
   };
 }

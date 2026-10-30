@@ -123,12 +123,67 @@ CREATE INDEX IF NOT EXISTS idx_event_type
   ON event_history (event_type, received_at DESC);
 `;
 
+const MIGRATION_002_SQL = `
+-- 7. Users Table
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT UNIQUE NOT NULL COLLATE NOCASE,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL CHECK(role IN ('viewer', 'operator', 'admin')),
+  is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);
+
+-- 8. Refresh Sessions Table
+CREATE TABLE IF NOT EXISTS refresh_sessions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT UNIQUE NOT NULL,
+  family_id TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  revoked_at TEXT,
+  replaced_by_hash TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_refresh_token_hash ON refresh_sessions (token_hash);
+CREATE INDEX IF NOT EXISTS idx_refresh_user_id ON refresh_sessions (user_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_family ON refresh_sessions (family_id);
+
+-- 9. Audit Logs Table
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  username TEXT,
+  ip_address TEXT,
+  action TEXT NOT NULL,
+  resource TEXT,
+  details TEXT,
+  status TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_logs (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_user_id ON audit_logs (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs (action, created_at DESC);
+`;
+
 export const migrations: Migration[] = [
   {
     version: 1,
     name: "001_initial_schema",
     up: (db: Database) => {
       db.exec(MIGRATION_001_SQL);
+    },
+  },
+  {
+    version: 2,
+    name: "002_auth_and_audit",
+    up: (db: Database) => {
+      db.exec(MIGRATION_002_SQL);
     },
   },
 ];

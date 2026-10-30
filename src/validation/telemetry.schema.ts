@@ -53,10 +53,24 @@ function normalizeDeviceTimestamp(ts: number): string | null {
 }
 
 /**
+ * Helper to identify whether a device identifier belongs to synthetic demonstration data.
+ */
+export function isSyntheticDevice(deviceId: string): boolean {
+  return (
+    deviceId === "demo-synthetic" ||
+    deviceId.startsWith("demo-") ||
+    deviceId.startsWith("synthetic-") ||
+    deviceId.includes("demo") ||
+    deviceId.includes("synthetic")
+  );
+}
+
+/**
  * Normalizes raw ESP32 telemetry into backend representation:
  * - Normalizes -1 values to null without fabricating zero.
  * - Retains device timestamp separately from server ingestion timestamp.
  * - Explicitly models CH4 and flow as estimates, per hardware safety notes.
+ * - Explicitly marks whether data is synthetic demonstration or real hardware.
  * - Keeps original raw payload attached for debugging.
  */
 export function normalizeTelemetry(
@@ -64,8 +78,11 @@ export function normalizeTelemetry(
   raw: RawTelemetryPayload,
   receivedAt: Date = new Date(),
 ): NormalizedTelemetry {
+  const isSynthetic = isSyntheticDevice(deviceId);
   return {
     deviceId,
+    isSynthetic,
+    dataSource: isSynthetic ? "SYNTHETIC_DEMO" : "REAL_HARDWARE",
     receivedAt: receivedAt.toISOString(),
     deviceTimestamp: normalizeDeviceTimestamp(raw.ts),
     rawTimestamp: raw.ts,

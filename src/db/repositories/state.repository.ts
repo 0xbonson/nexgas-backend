@@ -1,5 +1,6 @@
 import { Database, Statement } from "better-sqlite3";
 import { NormalizedDeviceState, ValveMode } from "../../types/index.js";
+import { isSyntheticDevice } from "../../validation/telemetry.schema.js";
 
 export interface StateQueryOptions {
   deviceId?: string;
@@ -152,8 +153,11 @@ export class StateRepository {
   }
 
   private mapRowToDomain(row: StateRow): NormalizedDeviceState {
+    const isSynthetic = isSyntheticDevice(row.device_id);
     return {
       deviceId: row.device_id,
+      isSynthetic,
+      dataSource: isSynthetic ? "SYNTHETIC_DEMO" : "REAL_HARDWARE",
       valveOpen: Boolean(row.valve_open),
       valveMode: row.valve_mode as ValveMode,
       filterWarning: Boolean(row.filter_warning),

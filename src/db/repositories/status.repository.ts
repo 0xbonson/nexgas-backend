@@ -1,5 +1,6 @@
 import { Database, Statement } from "better-sqlite3";
 import { NormalizedDeviceStatus } from "../../types/index.js";
+import { isSyntheticDevice } from "../../validation/telemetry.schema.js";
 
 export interface StatusQueryOptions {
   deviceId?: string;
@@ -60,9 +61,13 @@ export class StatusRepository {
 
     if (!row) return null;
 
+    const isSynthetic = isSyntheticDevice(row.device_id);
+
     return {
       deviceId: row.device_id,
       status: row.status as "online" | "offline",
+      isSynthetic,
+      dataSource: isSynthetic ? "SYNTHETIC_DEMO" : "REAL_HARDWARE",
       receivedAt: row.updated_at || new Date().toISOString(),
     };
   }
@@ -109,11 +114,16 @@ export class StatusRepository {
       .all(...params, limit, offset) as StatusRow[];
 
     return {
-      items: rows.map((r) => ({
-        deviceId: r.device_id,
-        status: r.status as "online" | "offline",
-        receivedAt: r.received_at || new Date().toISOString(),
-      })),
+      items: rows.map((r) => {
+        const isSynthetic = isSyntheticDevice(r.device_id);
+        return {
+          deviceId: r.device_id,
+          status: r.status as "online" | "offline",
+          isSynthetic,
+          dataSource: isSynthetic ? "SYNTHETIC_DEMO" : "REAL_HARDWARE",
+          receivedAt: r.received_at || new Date().toISOString(),
+        };
+      }),
       total: countRow.total,
     };
   }

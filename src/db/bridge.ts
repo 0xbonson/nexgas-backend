@@ -3,6 +3,9 @@ import { TelemetryRepository } from "./repositories/telemetry.repository.js";
 import { StateRepository } from "./repositories/state.repository.js";
 import { StatusRepository } from "./repositories/status.repository.js";
 import { EventRepository } from "./repositories/event.repository.js";
+import { UserRepository } from "./repositories/user.repository.js";
+import { RefreshSessionRepository } from "./repositories/refresh-session.repository.js";
+import { AuditRepository } from "./repositories/audit.repository.js";
 import { logger } from "../utils/logger.js";
 import {
   NormalizedTelemetry,
@@ -16,6 +19,9 @@ export interface DatabaseRepositories {
   state: StateRepository;
   status: StatusRepository;
   event: EventRepository;
+  user: UserRepository;
+  refreshSession: RefreshSessionRepository;
+  audit: AuditRepository;
 }
 
 export class MqttDatabaseBridge {
