@@ -10,6 +10,8 @@ import {
  */
 export function formatTelemetryForFrontend(t: NormalizedTelemetry) {
   return {
+    ts: t.rawTimestamp || (t.deviceTimestamp ? Math.floor(new Date(t.deviceTimestamp).getTime() / 1000) : 0),
+    uptimeMs: t.uptimeMs,
     h2sBefore: t.h2sBefore,
     h2sAfter: t.h2sAfter,
     ch4: t.ch4Estimate,
@@ -18,7 +20,13 @@ export function formatTelemetryForFrontend(t: NormalizedTelemetry) {
     pressureCollector: t.pressureCollectorKpa,
     temperature: t.temperatureC,
     humidity: t.humidityPct,
+    gasLineTemperature: t.gasLineTemperatureC,
+    gasLineHumidity: t.gasLineHumidityPct,
+    ph: t.ph,
     flow: t.flowEstimateLpm,
+    gasSinceStartL: t.gasSinceStartTotalL,
+    sensorsReady: t.sensorsReady,
+    rssi: t.rssi,
   };
 }
 
@@ -30,6 +38,8 @@ export function formatSystemStateForFrontend(
   telemetry?: NormalizedTelemetry | null,
 ) {
   const defaultTelemetry = {
+    ts: 0,
+    uptimeMs: state.uptimeMs || 0,
     h2sBefore: null,
     h2sAfter: null,
     ch4: null,
@@ -38,7 +48,13 @@ export function formatSystemStateForFrontend(
     pressureCollector: null,
     temperature: null,
     humidity: null,
+    gasLineTemperature: null,
+    gasLineHumidity: null,
+    ph: null,
     flow: null,
+    gasSinceStartL: null,
+    sensorsReady: state.sensorsReady ?? false,
+    rssi: null,
   };
 
   return {
@@ -48,6 +64,12 @@ export function formatSystemStateForFrontend(
     filterHealth: state.filterHealth,
     filterWarning: state.filterWarning,
     leakWarning: state.leakWarning,
+    pressureCalibrated: state.pressureCalibrated,
+    phCalibrated: state.phCalibrated,
+    sensorsReady: state.sensorsReady,
+    buffered: state.buffered,
+    firmware: state.firmware,
+    uptimeMs: state.uptimeMs,
   };
 }
 

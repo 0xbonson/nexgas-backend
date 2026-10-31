@@ -1,313 +1,179 @@
 # NEX-GAS Backend Service
 
-Backend service for **NEX-GAS** (Anaerobic Digestion & Biogas Monitoring System). Built with Node.js, Express 5, TypeScript (NodeNext ESM), SQLite (`better-sqlite3` in WAL mode), `ws` WebSocket gateway, and `mqtt.js` with HiveMQ Cloud TLS.
+Backend service untuk **NEX-GAS** (Sistem Pemantauan Reaktor Biogas & Pemurnian Anaerobik Cerdas). Dibangun menggunakan Node.js, Express 5, TypeScript (NodeNext ESM), database Turso Cloud (libSQL) / SQLite lokal (`better-sqlite3` mode WAL), `ws` WebSocket gateway, dan `mqtt.js` dengan enkripsi TLS HiveMQ Cloud.
 
 ---
 
-## 1. Arsitektur Sistem
+## 1. Tujuan Proyek NEX-GAS
+
+NEX-GAS dirancang untuk memantau produksi biogas secara real-time pada reaktor digesti anaerobik skala komunal/industri kecil. Sistem ini mengawasi:
+- Kualitas dan komposisi gas (kadar metana $\text{CH}_4$, hidrogen sulfida $\text{H}_2\text{S}$).
+- Keamanan reaktor dan lingkungan (deteksi kebocoran gas metana ambient dan tekanan digester).
+- Efektivitas pemurnian filter biogas sebelum disalurkan ke kompor atau generator listrik.
+- Integrasi IoT berbasis cloud end-to-end yang tangguh, tetap mampu menyajikan data historis dan snapshot terakhir meskipun perangkat keras mikrokontroler sedang offline.
+
+---
+
+## 2. Arsitektur Sistem
 
 ```
-┌─────────────────┐       MQTT (TLS 8883)       ┌────────────────────────────────────────────────────────┐
-│  ESP32 DevKit   │ ──────────────────────────> │                   NeX-Gas-Backend                      │
-│ (Gas & Pressure │ <────────────────────────── │                                                        │
-│  Sensors, Valve)│        Command (cmd)        │  1. MQTT Service (TLS, auto-reconnect, Zod validation) │
-└─────────────────┘                             │  2. SQLite Persistence (WAL mode, NULL preservation)   │
-                                                │  3. REST API (Express 5, CORS, sliding-window limiter) │
-                                                │  4. WebSocket Gateway (Heartbeat, live broadcasts)     │
-                                                └──────────────────────────┬─────────────────────────────┘
-                                                                           │  HTTP REST & WebSocket
-                                                                           ▼
-                                                ┌────────────────────────────────────────────────────────┐
-                                                │                   NeX-Gas-Frontend                     │
-                                                │         (Next.js 16 SPA, Dashboard, History)           │
-                                                └────────────────────────────────────────────────────────┘
+┌─────────────────────────────────┐
+│          ESP32 DevKit           │
+│  - Sensor MQ-136 & MQ-4         │
+│  - Sensor DHT22 & Tekanan       │
+│  - Solenoid Valve & Aktuator    │
+└────────────────┬────────────────┘
+                 │
+                 │ MQTT via TLS (Port 8883)
+                 ▼
+┌─────────────────────────────────┐
+│          HiveMQ Cloud           │
+│     (Broker MQTT Terkelola)     │
+└────────────────┬────────────────┘
+                 │
+                 │ Subscribe / Publish
+                 ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                          NeX-Gas-Backend                               │
+│  - MQTT Service: Auto-reconnect, Zod validation, TLS HiveMQ            │
+│  - Database Engine: Turso Cloud (libSQL over HTTP) & SQLite (WAL mode) │
+│  - REST API: Express 5, CORS (Vercel & localhost), Rate Limiter        │
+│  - WebSocket Gateway: Live broadcasts (telemetry, state, status, event)│
+│  - Snapshot API: `/api/device/snapshot` untuk hidrasi offline dashboard │
+└────────────────┬───────────────────────────────────────────────────────┘
+                 │
+                 ├───────────────────────────────┐
+                 │ HTTP REST & WebSocket         │ Public Ingress
+                 ▼                               ▼
+┌─────────────────────────────────┐  ┌─────────────────────────────────┐
+│        NeX-Gas-Frontend         │  │        Cloudflare Tunnel        │
+│  (Next.js Dashboard & Monitor)  │  │   (HTTPS & WSS Public Ingress)  │
+└─────────────────────────────────┘  └─────────────────────────────────┘
 ```
 
 ---
 
-## 2. Cara Menjalankan Backend Secara Lokal
+## 3. Struktur Folder & Komponen Utama
+
+```
+NeX-Gas-Backend/
+├── docs/
+│   └── NEXGAS_OFFLINE_DASHBOARD_VERIFICATION.md # Laporan verifikasi dashboard offline & Turso
+├── scripts/
+│   ├── start-tunnel.sh       # Script otomatisasi Cloudflare Quick Tunnel (HTTPS/WSS)
+│   └── stop-tunnel.sh        # Script penghentian tunnel
+├── src/
+│   ├── api/
+│   │   ├── formatters.ts     # Pemetaan 17 field telemetry untuk kompatibilitas frontend
+│   │   ├── middleware/       # Auth (JWT), CORS (mendukung *.vercel.app), error handler, limiter
+│   │   └── routes.ts         # Endpoint REST (/api/telemetry, /api/device/snapshot, /api/command, dll)
+│   ├── config/
+│   │   └── env.ts            # Validasi konfigurasi environment menggunakan Zod
+│   ├── database/
+│   │   ├── client.ts         # Inisialisasi adapter Turso libSQL dan better-sqlite3
+│   │   ├── migrations/       # Skema DDL tabel SQLite / Turso
+│   │   └── repositories/     # Akses data (telemetry, state, status, events)
+│   ├── mqtt/
+│   │   ├── client.ts         # MQTT client dengan TLS dan auto-reconnection
+│   │   └── handlers.ts       # Router pesan masuk topik MQTT
+│   ├── websocket/
+│   │   └── gateway.ts        # Broadcast event real-time ke client dashboard
+│   └── index.ts              # Entrypoint server Express & WebSocket
+├── tests/                    # 29 test suites (206 unit, integration, & security tests)
+└── package.json
+```
+
+---
+
+## 4. Status Sensor & Catatan Kejujuran Teknis
+
+Sistem NEX-GAS mengutamakan integritas dan kejujuran data (data integrity). Dashboard dan backend tidak pernah memalsukan angka sensor jika perangkat keras belum siap atau belum terpasang:
+
+| Komponen / Sensor | Status Fisik | Status Pembacaan & Telemetry | Penanganan di Backend & Dashboard |
+| :--- | :--- | :--- | :--- |
+| **MQ-136 (H₂S Inlet)** | Belum terpasang | Firmware mengirim `-1` | Disimpan sebagai `NULL` di database dan ditampilkan sebagai tanda `—` di dashboard. Efisiensi filter tidak diasumsikan 100%. |
+| **MQ-136 (H₂S Outlet)** | Terpasang | Terbaca | Disimpan di database Turso dan disajikan pada panel pemurnian. |
+| **MQ-4 (CH₄ Gas Line)** | Terpasang | Terbaca | Disimpan di database Turso dan disajikan pada gauge konsentrasi metana. |
+| **MQ-4 (Kebocoran Ambient)** | Terpasang | Terbaca (~7.6 ppm) | **Belum Tervalidasi**: Ditampilkan di dashboard dengan label disclaimer khusus karena pengujian di ruang terbuka belum terkalibrasi chamber gas standar. |
+| **DHT22 #1 & #2 (Suhu/Hum)** | Terpasang | Timeout / Unresponsive | Driver firmware ESP32 mengalami kendala waktu sinyal DHTesp (NAN). Disimpan sebagai `NULL` dan dashboard menampilkan `—` (tidak menampilkan suhu palsu 0°C atau 25°C). |
+| **Sensor pH (GPIO33)** | Belum terpasang | Floating ADC | Nilai pembacaan mentah difilter ketat (`ph < 0 || ph > 14`). Dashboard dan backend tidak menampilkan pH palsu (ditampilkan `—`). |
+| **Solenoid Valve** | Terpasang | Terkontrol otomatis / manual | Status valve dilaporkan jujur melalui topik state. Perintah aktuator memerlukan autentikasi JWT. |
+
+---
+
+## 5. Fitur Utama yang Selesai
+
+1. **Dual Database Engine (Turso Cloud & SQLite WAL)**:
+   - Mendukung Turso Cloud berbasis HTTP (`@libsql/client`) untuk arsitektur serverless/cloud.
+   - Fallback otomatis ke database lokal SQLite menggunakan WAL mode untuk pengujian offline tanpa jaringan.
+2. **Offline Dashboard Snapshot (`/api/device/snapshot`)**:
+   - Ketika ESP32 sedang offline atau dicabut, backend secara otomatis mengambil record terakhir dari Turso Cloud dan memetakan 17 field telemetry ke bentuk siap konsumsi frontend.
+   - Frontend menampilkan label transparan: *"Data terakhir diterima"* beserta timestamp lokal.
+3. **MQTT Telemetry Ingestion (TLS 8883)**:
+   - Terkoneksi aman ke HiveMQ Cloud dengan TLS.
+   - Parsing dan validasi payload menggunakan Zod.
+   - Logging terstruktur tanpa membocorkan token atau kredensial sensitif.
+4. **CORS Dinamis & Cloudflare Quick Tunnel**:
+   - CORS middleware mengizinkan akses dari `localhost:3000`, preview branch, serta seluruh subdomain `https://*.vercel.app`.
+   - Script `npm run tunnel:start` untuk membuat URL HTTPS publik secara instan tanpa perlu akun berbayar.
+5. **Keamanan Eksekusi Aktuator**:
+   - `PUBLIC_MQTT_TEST_MODE`: Mode proteksi publik yang memblokir semua perintah valve dan kalibrasi (HTTP 403) jika diaktifkan.
+   - Autentikasi berbasis JWT dengan role `operator` dan `admin`.
+
+---
+
+## 6. Cara Menjalankan Backend Secara Lokal
 
 ### Prasyarat
-- Node.js v20+ atau v22+ (teruji pada Node.js v26.12.1)
+- Node.js v20+ atau v22+
 - npm v10+
 
-### Langkah Instalasi & Menjalankan:
+### Langkah Menjalankan:
 ```bash
-# 1. Masuk ke folder backend
+# 1. Masuk ke direktori backend
 cd NeX-Gas-Backend
 
 # 2. Salin template konfigurasi environment
 cp .env.example .env
 
-# 3. Install dependencies
+# 3. Sesuaikan .env dengan kredensial Anda:
+# - TURSO_DATABASE_URL & TURSO_AUTH_TOKEN (opsional, untuk cloud)
+# - MQTT_HOST, MQTT_USERNAME, MQTT_PASSWORD (HiveMQ Cloud)
+
+# 4. Install dependensi
 npm install
 
-# 4. Jalankan migrasi database SQLite dan jalankan server dalam mode development
+# 5. Jalankan mode development
 npm run dev
 
-# Atau build dan jalankan dalam mode produksi:
+# 6. Atau build dan jalankan mode produksi
 npm run build
 npm start
 ```
 Server akan aktif di `http://localhost:5001` dan WebSocket di `ws://localhost:5001/ws`.
 
----
-
-## 3. Cara Menjalankan Frontend Secara Lokal
-
+### Menjalankan Pengujian (Test Suite):
 ```bash
-# 1. Masuk ke folder frontend
-cd ../NeX-Gas-Frontend
-
-# 2. Salin konfigurasi environment
-cp .env.example .env.local
-
-# 3. Pastikan mengarah ke backend lokal di .env.local:
-# NEXT_PUBLIC_API_URL=http://localhost:5001
-# NEXT_PUBLIC_WS_URL=ws://localhost:5001/ws
-# NEXT_PUBLIC_DEVICE_ID=nexgas-001
-
-# 4. Install dependencies & jalankan server Next.js
-npm install
-npm run dev
-```
-Buka `http://localhost:3000` di peramban web.
-
----
-
-## 4. Environment Variables Reference
-
-Konfigurasi backend diatur melalui `.env` (divalidasi oleh Zod di `src/config/env.ts`):
-
-| Variabel | Tipe | Default | Keterangan |
-| :--- | :--- | :--- | :--- |
-| `NODE_ENV` | string | `development` | Environment runtime (`development`, `production`, `test`) |
-| `PORT` | number | `5001` | Port HTTP REST API dan WebSocket gateway |
-| `DB_PATH` | string | `./data/nexgas.sqlite` | Lokasi file database SQLite (`:memory:` untuk testing) |
-| `JWT_SECRET` | string | *dev default* | Kunci enkripsi token JWT (minimal 32 karakter) |
-| `JWT_ACCESS_EXPIRATION` | string | `15m` | Durasi masa berlaku access token |
-| `MQTT_HOST` | string | `your-cluster-id.s1.eu.hivemq.cloud` | Hostname broker MQTT (HiveMQ Cloud / broker uji) |
-| `MQTT_PORT` | number | `8883` | Port broker MQTT (8883 untuk TLS, 1883 untuk TCP non-TLS) |
-| `MQTT_PROTOCOL` | string | `mqtts` | Protokol MQTT (`mqtts`, `mqtt`, `ws`, `wss`) |
-| `MQTT_USERNAME` | string | `""` | Kredensial username broker MQTT |
-| `MQTT_PASSWORD` | string | `""` | Kredensial password broker MQTT |
-| `DEFAULT_DEVICE_ID` | string | `nexgas-001` | ID default perangkat ESP32 |
-| `MQTT_CONNECT_ON_STARTUP` | boolean | `false` | Otomatis sambungkan ke broker saat backend mulai |
-| `PUBLIC_MQTT_TEST_MODE` | boolean | `false` | **Safety Lock**: jika `true`, seluruh perintah aktuator diblokir (HTTP 403) |
-| `LOG_LEVEL` | string | `info` | Level log (`debug`, `info`, `warn`, `error`) |
-| `CORS_ALLOWED_ORIGINS`| string | `http://localhost:3000,...` | Daftar origin yang diizinkan (dipisah koma) |
-| `RATE_LIMIT_COMMAND_MAX` | number | `10` | Batas maksimum perintah per window rate limit |
-| `RATE_LIMIT_COMMAND_WINDOW_MS`| number | `10000` | Durasi window rate limit command (ms) |
-
----
-
-## 5. MQTT Topics & Payloads (Firmware Contract)
-
-Struktur topik: `nexgas/{DEVICE_ID}/{TOPIC_TYPE}`
-
-### 1. Telemetry (`nexgas/{DEVICE_ID}/telemetry`)
-Dipublikasikan setiap ~5 detik oleh ESP32.
-```json
-{
-  "ts": 1730282400,
-  "uptimeMs": 125000,
-  "h2sBefore": -1,
-  "h2sAfter": 2.3,
-  "ch4": 64.5,
-  "leak": 0,
-  "pressureDigester": 1.45,
-  "pressureCollector": 0.95,
-  "temperature": 36.5,
-  "humidity": 86.0,
-  "gasLineTemperature": 34.0,
-  "gasLineHumidity": 82.0,
-  "ph": 7.15,
-  "flow": 0.05,
-  "gasSinceStartL": 145.2,
-  "sensorsReady": true,
-  "rssi": -62
-}
-```
-
-### 2. State (`nexgas/{DEVICE_ID}/state`)
-Dipublikasikan secara retain saat terjadi perubahan status atau setiap 30 detik.
-```json
-{
-  "valveOpen": false,
-  "valveMode": "auto",
-  "filterWarning": false,
-  "leakWarning": false,
-  "filterHealth": 94,
-  "pressureCalibrated": true,
-  "phCalibrated": true,
-  "sensorsReady": true,
-  "buffered": 0,
-  "uptimeMs": 130000,
-  "firmware": "1.0.0"
-}
-```
-
-### 3. Status (`nexgas/{DEVICE_ID}/status`)
-Retained payload: `"online"` saat terhubung, `"offline"` melalui MQTT Last Will & Testament (LWT).
-
-### 4. Event (`nexgas/{DEVICE_ID}/event`)
-Dipublikasikan saat terjadi peristiwa perangkat keras penting:
-```json
-{
-  "ts": 1730282600,
-  "uptimeMs": 140000,
-  "type": "valve_closed_leak",
-  "severity": "waspada",
-  "message": "Solenoid valve closed automatically due to methane leak threshold"
-}
-```
-
-### 5. Command (`nexgas/{DEVICE_ID}/cmd`)
-Topik langganan firmware untuk menerima instruksi:
-- Mode: `{"mode": "auto"}` atau `{"mode": "manual"}`
-- Valve: `{"valve": "open"}` atau `{"valve": "close"}`
-- Tare: `{"tare": true}`
-- Kalibrasi Tekanan: `{"cal_pressure_point": {"sensor": "digester", "kpa": 1.5}}`
-- Kalibrasi MQ: `{"cal_mq": {"gas": "h2s", "ref_ppm": 10.0}}`
-- Kalibrasi pH: `{"cal_ph": {"ph": 7.0}}`
-
----
-
-## 6. REST API Reference
-
-Semua response mengembalikan JSON dengan status HTTP standar.
-
-### Diagnostics & Health
-- `GET /health`: Status liveness, uptime, heap memory, dan status koneksi MQTT broker (`mqttConnected: true/false`).
-- `GET /health/ready`: Status kesiapan layanan (`ready: true`), path database aktif, dan topik MQTT yang dilanggani.
-- `GET /api/config`: Konfigurasi runtime non-sensitif (kredensial dan password otomatis disembunyikan).
-
-### Data Terkini
-- `GET /api/telemetry/latest?deviceId={deviceId}`: Telemetry terbaru dalam format data normal backend (NULL preservation) dan model `frontend`.
-- `GET /api/state?deviceId={deviceId}`: Status valve, mode, dan kesehatan filter saat ini.
-- `GET /api/status?deviceId={deviceId}`: Status online/offline LWT perangkat.
-
-### Riwayat & Paginasi
-- `GET /api/history/telemetry?deviceId=...&limit=50&offset=0&from=...&to=...`: Riwayat telemetry kronologis.
-- `GET /api/history/events?deviceId=...&severity=waspada&type=...&limit=50`: Riwayat event perangkat keras.
-- `GET /api/history/state?deviceId=...&limit=50`: Riwayat transisi state valve dan kalibrasi.
-- `GET /api/history/status?deviceId=...&limit=50`: Riwayat transisi status online/offline.
-
-### Perintah Valve & Kalibrasi
-- `POST /api/command`: Menerbitkan perintah ke topik `nexgas/{deviceId}/cmd` (QoS 1).
-  - Autentikasi: Wajib Bearer JWT dengan role `operator` atau `admin`.
-  - Body: `{ "deviceId": "nexgas-001", "command": { "mode": "manual" } }`
-  - Response jujur (200 OK — hanya jika dalam mode produksi dengan TLS):
-    ```json
-    {
-      "status": "published",
-      "verificationStatus": "pending_execution",
-      "message": "Command published to device MQTT topic. Physical execution is governed by ESP32 firmware safety checks.",
-      "protocolNote": "Firmware does not emit correlated command ACKs; state transitions are broadcast asynchronously on nexgas/{DEVICE_ID}/state."
-    }
-    ```
-  - **PENTING — Safety Lock (HTTP 403 Forbidden)**: Jika `PUBLIC_MQTT_TEST_MODE=true` (mode demo publik), backend menolak SEMUA perintah aktuator (`valve`, `mode`, `tare`, `cal_*`) dengan pesan:
-    ```json
-    {
-      "error": "Forbidden",
-      "message": "All device commands are strictly disabled in PUBLIC_MQTT_TEST_MODE for safety."
-    }
-    ```
-  - Rejection lainnya: HTTP 401 jika belum login; HTTP 403 jika role tidak mencukupi (misal `viewer`); HTTP 503 jika broker MQTT offline; HTTP 429 jika melebihi rate limit; HTTP 400 jika payload/ID tidak valid.
-
----
-
-## 7. WebSocket Message Reference
-
-- **Endpoint**: `ws://<host>:<port>/ws`
-- **Ping / Pong**: Client mengirim `{"type": "ping"}`; server merespons `{"type": "pong", "timestamp": "..."}`.
-- **Broadcast Events**:
-  1. `telemetry`: Update pembacaan sensor setiap ~5 detik.
-  2. `state`: Update status valve, kalibrasi, dan filter.
-  3. `status`: Update online / offline.
-  4. `event`: Peristiwa hardware beserta objek mapping notifikasi UI (`AppNotification`).
-
----
-
-## 8. Database Schema (SQLite WAL)
-
-Database tersimpan di SQLite dengan mode WAL (`PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;`).
-
-1. `schema_migrations`: Pelacakan versi migrasi skema.
-2. `telemetry_history`: Riwayat sensor kronologis dengan index `(device_id, received_at)` dan `(device_id, raw_timestamp, uptime_ms)`. Nilai sensor yang tidak tersedia disimpan sebagai `NULL`.
-3. `device_current_state`: Baris tunggal per perangkat (UPSERT O(1)) untuk status terkini.
-4. `state_history`: Log append-only setiap transisi state valve atau kalibrasi.
-5. `device_current_status`: Status koneksi LWT terkini per perangkat.
-6. `status_history`: Log append-only setiap transisi koneksi online/offline.
-7. `event_history`: Log append-only peristiwa perangkat keras penting (`boot`, `valve_closed_leak`, dll).
-
----
-
-## 9. Cara Menjalankan Pengujian
-
-```bash
-# Menjalankan seluruh 26 test suites (174 unit, integration, & E2E tests) di backend:
-cd NeX-Gas-Backend
 npm test
-
-# Menjalankan typecheck & build di frontend:
-cd ../NeX-Gas-Frontend
-npm run build
 ```
+Seluruh 29 file pengujian (206 tests) mencakup unit test, integritas endpoint REST, validasi schema, pemetaan Zod, dan ketahanan WebSocket.
 
 ---
 
-## 10. Batasan Teknis & Semantik Sensor
+## 7. Cloudflare Tunnel (Akses Eksternal)
 
-1. **Sensor H₂S Hulu (`h2sBefore = -1`)**:
-   Sensor MQ-136 kedua (sebelum filter) belum dipasang secara fisik pada prototipe. Nilai `-1` dari firmware dilindungi sebagai `NULL` di database dan `—` di frontend. Sistem **tidak pernah** mengasumsikan efisiensi penyaringan 100% dari data yang tidak ada.
-2. **Estimasi CH₄ & Flow**:
-   Sensor MQ-4 mengukur resistansi relatif gas, bukan persentase kemurnian gas bersertifikat. Nilai aliran (`flow`) dihitung dari laju penurunan tekanan, bukan flowmeter langsung.
-3. **Sinkronisasi NTP (`ts = 0`)**:
-   Jika perangkat belum mendapatkan sinkronisasi NTP, `ts = 0` dinormalisasi menjadi `null` pada kolom waktu perangkat, sementara waktu kedatangan backend (`receivedAt`) dan uptime perangkat (`uptimeMs`) tetap dicatat secara akurat.
-4. **Keterbatasan Acknowledgment Perintah Firmware**:
-   ESP32 firmware mengeksekusi perintah di `handleCommand()` dan mempublikasikan status baru, namun tidak menghasilkan ID korelasi atau acknowledgment diskrit. Backend dan frontend melaporkan status perintah secara jujur sebagai `published` / `pending_execution`, bukan "pasti berhasil dibuka/ditutup".
-
----
-
-## 11. Panduan Deployment Masa Depan
-
-1. **Backend**:
-   - Dapat di-deploy sebagai kontainer Docker di Google Cloud Run, Railway, atau VPS.
-   - Menggunakan mount volume persisten untuk file database SQLite (`/data/nexgas.sqlite`).
-   - Masukkan kredensial HiveMQ Cloud TLS port 8883 pada environment variables server.
-2. **Frontend**:
-   - Berupa Next.js static export yang dapat di-hosting di Vercel atau GitHub Pages.
-   - Atur `NEXT_PUBLIC_API_URL` ke domain backend HTTPS publik (misal: `https://api.nex-gas.id`).
-   - Atur `NEXT_PUBLIC_WS_URL` ke WebSocket WSS publik (misal: `wss://api.nex-gas.id/ws`).
-
----
-
-## 12. Deploy (Docker / Railway / VPS)
-
-Repo ini menyertakan `Dockerfile` multi-stage (build TypeScript + `better-sqlite3`,
-lalu runtime slim) dan `.dockerignore`.
-
+Untuk menghubungkan frontend di Vercel dengan backend lokal:
 ```bash
-# build & jalankan lokal
-docker build -t nexgas-backend .
-docker run -p 5001:5001 --env-file .env -v nexgas-data:/data nexgas-backend
+# Memulai tunnel publik
+npm run tunnel:start
 
-# cek
-curl http://localhost:5001/health
-curl http://localhost:5001/health/ready
+# Menghentikan tunnel
+npm run tunnel:stop
 ```
+URL publik yang dihasilkan dapat dimasukkan ke variabel `NEXT_PUBLIC_API_URL` dan `NEXT_PUBLIC_WS_URL` di Vercel.
 
-Variabel wajib di production:
+---
 
-| Variabel | Catatan |
-| --- | --- |
-| `JWT_SECRET` | minimal 32 karakter, **tidak boleh** default dev key |
-| `CORS_ALLOWED_ORIGINS` | harus memuat origin frontend, mis. `https://nex-gas.vercel.app` |
-| `MQTT_HOST` / `MQTT_USERNAME` / `MQTT_PASSWORD` | kredensial HiveMQ Cloud |
-| `PUBLIC_MQTT_TEST_MODE` | `true` = semua perintah ditolak (mode uji publik) |
-| `DB_PATH` | arahkan ke volume persisten (`/data/nexgas.sqlite` di image) |
+## 8. Lisensi & Kontributor
 
-Railway: buat project dari repo GitHub ini → service otomatis memakai `Dockerfile`,
-tambahkan **Volume** ke `/data`, isi env di atas, lalu generate domain publik.
-Backend menyajikan REST dan WebSocket (`/ws`) pada port yang sama.
+Proyek ini dikembangkan oleh Tim Pengembang NEX-GAS untuk mendukung transisi energi terbarukan ramah lingkungan.

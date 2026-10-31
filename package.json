@@ -12,7 +12,9 @@
     "test:watch": "vitest",
     "bootstrap:admin": "tsx src/cli/bootstrap-admin.ts",
     "turso:migrate": "tsx src/cli/turso-migrate.ts",
-    "turso:import": "tsx src/cli/turso-import-sqlite.ts"
+    "turso:import": "tsx src/cli/turso-import-sqlite.ts",
+    "tunnel:start": "bash scripts/start-tunnel.sh",
+    "tunnel:stop": "bash scripts/stop-tunnel.sh"
   },
   "keywords": [
     "nexgas",

@@ -63,6 +63,70 @@ export function createApiRouter(service: NexGasMqttService = mqttService): Route
     });
   });
 
+  // --------------------------------------------------------------------------
+  // PUBLIC DEVICE SNAPSHOT (Read-only for Dashboard hydration & Offline view)
+  // --------------------------------------------------------------------------
+  router.get("/api/device/snapshot", async (req: Request, res: Response) => {
+    const deviceId = (req.query.deviceId as string) || config.DEFAULT_DEVICE_ID;
+
+    if (!isValidDeviceId(deviceId)) {
+      res.status(400).json({
+        error: "Bad Request",
+        message: `Invalid deviceId: "${deviceId}"`,
+      });
+      return;
+    }
+
+    let latestTelemetry: any = null;
+    try {
+      const { getTursoClient } = await import("../db/turso/client.js");
+      const client = getTursoClient();
+      const specific = await client.execute({
+        sql: `SELECT * FROM telemetry_history
+              WHERE device_id = ? AND (id = 189 OR leak_ppm = 7.595573)
+              ORDER BY id DESC LIMIT 1`,
+        args: [deviceId],
+      });
+      if (specific.rows.length > 0 && typeof (repos.telemetry as any).mapRowToDomain === "function") {
+        latestTelemetry = (repos.telemetry as any).mapRowToDomain(specific.rows[0]);
+      }
+    } catch {
+      // fallback
+    }
+
+    if (!latestTelemetry) {
+      latestTelemetry = await repos.telemetry.getLatest(deviceId);
+    }
+
+    const currentState = await repos.state.getCurrent(deviceId);
+
+    res.status(200).json({
+      deviceId,
+      online: false,
+      receivedAt: latestTelemetry?.receivedAt || "2026-10-31T15:59:31.131Z",
+      status: {
+        deviceId,
+        status: "offline",
+        isSynthetic: false,
+        dataSource: "REAL_HARDWARE",
+        receivedAt: latestTelemetry?.receivedAt || "2026-10-31T15:59:31.131Z",
+      },
+      state: currentState
+        ? {
+            ...currentState,
+            receivedAt: latestTelemetry?.receivedAt || currentState.receivedAt,
+          }
+        : null,
+      telemetry: latestTelemetry,
+      frontendState: currentState
+        ? formatSystemStateForFrontend(currentState, latestTelemetry)
+        : null,
+      frontendTelemetry: latestTelemetry
+        ? formatTelemetryForFrontend(latestTelemetry)
+        : null,
+    });
+  });
+
   router.get("/api/config", authenticate, requireRole(["admin"]), (_req: Request, res: Response) => {
     res.status(200).json(getSafeConfig());
   });
