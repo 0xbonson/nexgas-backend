@@ -7,7 +7,7 @@ export interface Migration {
   up: (db: Database) => void;
 }
 
-const MIGRATION_001_SQL = `
+export const MIGRATION_001_SQL = `
 -- 1. Telemetry History: immutable time-series sensor readings
 CREATE TABLE IF NOT EXISTS telemetry_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -123,7 +123,7 @@ CREATE INDEX IF NOT EXISTS idx_event_type
   ON event_history (event_type, received_at DESC);
 `;
 
-const MIGRATION_002_SQL = `
+export const MIGRATION_002_SQL = `
 -- 7. Users Table
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

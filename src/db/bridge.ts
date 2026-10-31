@@ -14,7 +14,7 @@ import {
   NormalizedDeviceEvent,
 } from "../types/index.js";
 
-export interface DatabaseRepositories {
+export interface SyncDatabaseRepositories {
   telemetry: TelemetryRepository;
   state: StateRepository;
   status: StatusRepository;
@@ -33,7 +33,7 @@ export class MqttDatabaseBridge {
 
   constructor(
     private mqttService: NexGasMqttService,
-    private repos: DatabaseRepositories,
+    private repos: SyncDatabaseRepositories,
   ) {
     this.telemetryHandler = (telemetry: NormalizedTelemetry) => {
       try {

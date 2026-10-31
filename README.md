@@ -49,7 +49,7 @@ npm run dev
 npm run build
 npm start
 ```
-Server akan aktif di `http://localhost:3001` dan WebSocket di `ws://localhost:3001/ws`.
+Server akan aktif di `http://localhost:5001` dan WebSocket di `ws://localhost:5001/ws`.
 
 ---
 
@@ -63,8 +63,8 @@ cd ../NeX-Gas-Frontend
 cp .env.example .env.local
 
 # 3. Pastikan mengarah ke backend lokal di .env.local:
-# NEXT_PUBLIC_API_URL=http://localhost:3001
-# NEXT_PUBLIC_WS_URL=ws://localhost:3001/ws
+# NEXT_PUBLIC_API_URL=http://localhost:5001
+# NEXT_PUBLIC_WS_URL=ws://localhost:5001/ws
 # NEXT_PUBLIC_DEVICE_ID=nexgas-001
 
 # 4. Install dependencies & jalankan server Next.js
@@ -82,15 +82,19 @@ Konfigurasi backend diatur melalui `.env` (divalidasi oleh Zod di `src/config/en
 | Variabel | Tipe | Default | Keterangan |
 | :--- | :--- | :--- | :--- |
 | `NODE_ENV` | string | `development` | Environment runtime (`development`, `production`, `test`) |
-| `PORT` | number | `3001` | Port HTTP REST API dan WebSocket gateway |
-| `HOST` | string | `0.0.0.0` | Host interface address |
-| `MQTT_BROKER_HOST` | string | *wajib jika connect* | Hostname cluster HiveMQ Cloud |
-| `MQTT_BROKER_PORT` | number | `8883` | Port TLS HiveMQ Cloud |
-| `MQTT_USERNAME` | string | *wajib jika connect* | Kredensial username broker MQTT |
-| `MQTT_PASSWORD` | string | *wajib jika connect* | Kredensial password broker MQTT |
+| `PORT` | number | `5001` | Port HTTP REST API dan WebSocket gateway |
+| `DB_PATH` | string | `./data/nexgas.sqlite` | Lokasi file database SQLite (`:memory:` untuk testing) |
+| `JWT_SECRET` | string | *dev default* | Kunci enkripsi token JWT (minimal 32 karakter) |
+| `JWT_ACCESS_EXPIRATION` | string | `15m` | Durasi masa berlaku access token |
+| `MQTT_HOST` | string | `your-cluster-id.s1.eu.hivemq.cloud` | Hostname broker MQTT (HiveMQ Cloud / broker uji) |
+| `MQTT_PORT` | number | `8883` | Port broker MQTT (8883 untuk TLS, 1883 untuk TCP non-TLS) |
+| `MQTT_PROTOCOL` | string | `mqtts` | Protokol MQTT (`mqtts`, `mqtt`, `ws`, `wss`) |
+| `MQTT_USERNAME` | string | `""` | Kredensial username broker MQTT |
+| `MQTT_PASSWORD` | string | `""` | Kredensial password broker MQTT |
 | `DEFAULT_DEVICE_ID` | string | `nexgas-001` | ID default perangkat ESP32 |
-| `DATABASE_PATH` | string | `./data/nexgas.sqlite` | Lokasi file database SQLite (`:memory:` untuk testing) |
-| `LOG_LEVEL` | string | `info` | Level log (`trace`, `debug`, `info`, `warn`, `error`) |
+| `MQTT_CONNECT_ON_STARTUP` | boolean | `false` | Otomatis sambungkan ke broker saat backend mulai |
+| `PUBLIC_MQTT_TEST_MODE` | boolean | `false` | **Safety Lock**: jika `true`, seluruh perintah aktuator diblokir (HTTP 403) |
+| `LOG_LEVEL` | string | `info` | Level log (`debug`, `info`, `warn`, `error`) |
 | `CORS_ALLOWED_ORIGINS`| string | `http://localhost:3000,...` | Daftar origin yang diizinkan (dipisah koma) |
 | `RATE_LIMIT_COMMAND_MAX` | number | `10` | Batas maksimum perintah per window rate limit |
 | `RATE_LIMIT_COMMAND_WINDOW_MS`| number | `10000` | Durasi window rate limit command (ms) |
@@ -191,8 +195,9 @@ Semua response mengembalikan JSON dengan status HTTP standar.
 
 ### Perintah Valve & Kalibrasi
 - `POST /api/command`: Menerbitkan perintah ke topik `nexgas/{deviceId}/cmd` (QoS 1).
+  - Autentikasi: Wajib Bearer JWT dengan role `operator` atau `admin`.
   - Body: `{ "deviceId": "nexgas-001", "command": { "mode": "manual" } }`
-  - Response jujur (200 OK):
+  - Response jujur (200 OK — hanya jika dalam mode produksi dengan TLS):
     ```json
     {
       "status": "published",
@@ -201,7 +206,14 @@ Semua response mengembalikan JSON dengan status HTTP standar.
       "protocolNote": "Firmware does not emit correlated command ACKs; state transitions are broadcast asynchronously on nexgas/{DEVICE_ID}/state."
     }
     ```
-  - Rejection: HTTP 503 jika broker MQTT offline; HTTP 429 jika melebihi rate limit; HTTP 400 jika payload/ID tidak valid.
+  - **PENTING — Safety Lock (HTTP 403 Forbidden)**: Jika `PUBLIC_MQTT_TEST_MODE=true` (mode demo publik), backend menolak SEMUA perintah aktuator (`valve`, `mode`, `tare`, `cal_*`) dengan pesan:
+    ```json
+    {
+      "error": "Forbidden",
+      "message": "All device commands are strictly disabled in PUBLIC_MQTT_TEST_MODE for safety."
+    }
+    ```
+  - Rejection lainnya: HTTP 401 jika belum login; HTTP 403 jika role tidak mencukupi (misal `viewer`); HTTP 503 jika broker MQTT offline; HTTP 429 jika melebihi rate limit; HTTP 400 jika payload/ID tidak valid.
 
 ---
 
@@ -234,13 +246,13 @@ Database tersimpan di SQLite dengan mode WAL (`PRAGMA journal_mode = WAL; PRAGMA
 ## 9. Cara Menjalankan Pengujian
 
 ```bash
-# Menjalankan seluruh 23 test suites (142 unit, integration, & E2E tests) di backend:
+# Menjalankan seluruh 26 test suites (174 unit, integration, & E2E tests) di backend:
 cd NeX-Gas-Backend
 npm test
 
-# Menjalankan seluruh test suites (20 unit & integration tests) di frontend:
+# Menjalankan typecheck & build di frontend:
 cd ../NeX-Gas-Frontend
-npm test
+npm run build
 ```
 
 ---

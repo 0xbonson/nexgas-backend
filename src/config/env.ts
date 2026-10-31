@@ -28,6 +28,9 @@ export const configSchema = z.object({
     .optional()
     .transform((val) => val === "true"),
   DB_PATH: z.string().default("./data/nexgas.sqlite"),
+  DATABASE_DRIVER: z.enum(["sqlite", "turso"]).default("sqlite"),
+  TURSO_DATABASE_URL: z.string().optional(),
+  TURSO_AUTH_TOKEN: z.string().optional(),
   CORS_ALLOWED_ORIGINS: z
     .string()
     .default("http://localhost:3000,http://127.0.0.1:3000,https://nex-gas.github.io"),
@@ -68,6 +71,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     MQTT_CONNECT_ON_STARTUP: env.MQTT_CONNECT_ON_STARTUP,
     PUBLIC_MQTT_TEST_MODE: env.PUBLIC_MQTT_TEST_MODE,
     DB_PATH: env.DB_PATH,
+    DATABASE_DRIVER: env.DATABASE_DRIVER,
+    TURSO_DATABASE_URL: env.TURSO_DATABASE_URL,
+    TURSO_AUTH_TOKEN: env.TURSO_AUTH_TOKEN,
     CORS_ALLOWED_ORIGINS: env.CORS_ALLOWED_ORIGINS,
     RATE_LIMIT_COMMAND_MAX: env.RATE_LIMIT_COMMAND_MAX,
     RATE_LIMIT_COMMAND_WINDOW_MS: env.RATE_LIMIT_COMMAND_WINDOW_MS,

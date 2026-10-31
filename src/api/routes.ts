@@ -75,7 +75,7 @@ export function createApiRouter(service: NexGasMqttService = mqttService): Route
     "/api/telemetry/latest",
     authenticate,
     requireRole(["viewer", "operator", "admin"]),
-    (req: Request, res: Response) => {
+    async (req: Request, res: Response) => {
       const deviceId = (req.query.deviceId as string) || config.DEFAULT_DEVICE_ID;
 
       if (!isValidDeviceId(deviceId)) {
@@ -86,7 +86,7 @@ export function createApiRouter(service: NexGasMqttService = mqttService): Route
         return;
       }
 
-      const latest = repos.telemetry.getLatest(deviceId);
+      const latest = await repos.telemetry.getLatest(deviceId);
       if (!latest) {
         res.status(404).json({
           error: "Not Found",
@@ -114,7 +114,7 @@ export function createApiRouter(service: NexGasMqttService = mqttService): Route
     "/api/state",
     authenticate,
     requireRole(["viewer", "operator", "admin"]),
-    (req: Request, res: Response) => {
+    async (req: Request, res: Response) => {
       const deviceId = (req.query.deviceId as string) || config.DEFAULT_DEVICE_ID;
 
       if (!isValidDeviceId(deviceId)) {
@@ -125,7 +125,7 @@ export function createApiRouter(service: NexGasMqttService = mqttService): Route
         return;
       }
 
-      const state = repos.state.getCurrent(deviceId);
+      const state = await repos.state.getCurrent(deviceId);
       if (!state) {
         res.status(404).json({
           error: "Not Found",
@@ -134,7 +134,7 @@ export function createApiRouter(service: NexGasMqttService = mqttService): Route
         return;
       }
 
-      const latestTelemetry = repos.telemetry.getLatest(deviceId);
+      const latestTelemetry = await repos.telemetry.getLatest(deviceId);
 
       res.status(200).json({
         deviceId: state.deviceId,
@@ -151,7 +151,7 @@ export function createApiRouter(service: NexGasMqttService = mqttService): Route
     "/api/status",
     authenticate,
     requireRole(["viewer", "operator", "admin"]),
-    (req: Request, res: Response) => {
+    async (req: Request, res: Response) => {
       const deviceId = (req.query.deviceId as string) || config.DEFAULT_DEVICE_ID;
 
       if (!isValidDeviceId(deviceId)) {
@@ -162,7 +162,7 @@ export function createApiRouter(service: NexGasMqttService = mqttService): Route
         return;
       }
 
-      const status = repos.status.getCurrent(deviceId);
+      const status = await repos.status.getCurrent(deviceId);
       if (!status) {
         res.status(404).json({
           error: "Not Found",
@@ -185,8 +185,8 @@ export function createApiRouter(service: NexGasMqttService = mqttService): Route
     "/api/demo/telemetry",
     authenticate,
     requireRole(["viewer", "operator", "admin"]),
-    (_req: Request, res: Response) => {
-      const latest = repos.telemetry.getLatest("demo-synthetic");
+    async (_req: Request, res: Response) => {
+      const latest = await repos.telemetry.getLatest("demo-synthetic");
       if (!latest) {
         res.status(404).json({
           error: "Not Found",
@@ -218,7 +218,7 @@ export function createApiRouter(service: NexGasMqttService = mqttService): Route
     "/api/history/telemetry",
     authenticate,
     requireRole(["viewer", "operator", "admin"]),
-    (req: Request, res: Response) => {
+    async (req: Request, res: Response) => {
       const parsedQuery = historyQuerySchema.safeParse(req.query);
       if (!parsedQuery.success) {
         res.status(400).json({
@@ -237,7 +237,7 @@ export function createApiRouter(service: NexGasMqttService = mqttService): Route
         return;
       }
 
-      const result = repos.telemetry.getHistory(q);
+      const result = await repos.telemetry.getHistory(q);
       res.status(200).json({
         items: result.items,
         total: result.total,
@@ -251,7 +251,7 @@ export function createApiRouter(service: NexGasMqttService = mqttService): Route
     "/api/history/events",
     authenticate,
     requireRole(["viewer", "operator", "admin"]),
-    (req: Request, res: Response) => {
+    async (req: Request, res: Response) => {
       const parsedQuery = historyQuerySchema.safeParse(req.query);
       if (!parsedQuery.success) {
         res.status(400).json({
@@ -270,7 +270,7 @@ export function createApiRouter(service: NexGasMqttService = mqttService): Route
         return;
       }
 
-      const result = repos.event.getHistory(q);
+      const result = await repos.event.getHistory(q);
       res.status(200).json({
         items: result.items,
         notifications: result.items.map((ev) => formatEventToAppNotification(ev)),
@@ -285,7 +285,7 @@ export function createApiRouter(service: NexGasMqttService = mqttService): Route
     "/api/history/state",
     authenticate,
     requireRole(["viewer", "operator", "admin"]),
-    (req: Request, res: Response) => {
+    async (req: Request, res: Response) => {
       const parsedQuery = historyQuerySchema.safeParse(req.query);
       if (!parsedQuery.success) {
         res.status(400).json({
@@ -304,7 +304,7 @@ export function createApiRouter(service: NexGasMqttService = mqttService): Route
         return;
       }
 
-      const result = repos.state.getHistory(q);
+      const result = await repos.state.getHistory(q);
       res.status(200).json({
         items: result.items,
         total: result.total,
@@ -318,7 +318,7 @@ export function createApiRouter(service: NexGasMqttService = mqttService): Route
     "/api/history/status",
     authenticate,
     requireRole(["viewer", "operator", "admin"]),
-    (req: Request, res: Response) => {
+    async (req: Request, res: Response) => {
       const parsedQuery = historyQuerySchema.safeParse(req.query);
       if (!parsedQuery.success) {
         res.status(400).json({
@@ -337,7 +337,7 @@ export function createApiRouter(service: NexGasMqttService = mqttService): Route
         return;
       }
 
-      const result = repos.status.getHistory(q);
+      const result = await repos.status.getHistory(q);
       res.status(200).json({
         items: result.items,
         total: result.total,
@@ -361,7 +361,7 @@ export function createApiRouter(service: NexGasMqttService = mqttService): Route
 
       const parsedBody = commandRequestSchema.safeParse(req.body);
       if (!parsedBody.success) {
-        repos.audit.insert({
+        await repos.audit.insert({
           userId: user.id,
           username: user.username,
           ipAddress: clientIp,
@@ -385,7 +385,7 @@ export function createApiRouter(service: NexGasMqttService = mqttService): Route
       const { deviceId, command } = parsedBody.data;
 
       if (!isValidDeviceId(deviceId)) {
-        repos.audit.insert({
+        await repos.audit.insert({
           userId: user.id,
           username: user.username,
           ipAddress: clientIp,
@@ -413,7 +413,7 @@ export function createApiRouter(service: NexGasMqttService = mqttService): Route
           reason: roleCheck.reason,
         });
 
-        repos.audit.insert({
+        await repos.audit.insert({
           userId: user.id,
           username: user.username,
           ipAddress: clientIp,
@@ -438,7 +438,7 @@ export function createApiRouter(service: NexGasMqttService = mqttService): Route
           user: user.username,
         });
 
-        repos.audit.insert({
+        await repos.audit.insert({
           userId: user.id,
           username: user.username,
           ipAddress: clientIp,
@@ -462,7 +462,7 @@ export function createApiRouter(service: NexGasMqttService = mqttService): Route
           user: user.username,
         });
 
-        repos.audit.insert({
+        await repos.audit.insert({
           userId: user.id,
           username: user.username,
           ipAddress: clientIp,
@@ -482,7 +482,7 @@ export function createApiRouter(service: NexGasMqttService = mqttService): Route
       try {
         const publishResult = await service.publishCommand(deviceId, command);
 
-        repos.audit.insert({
+        await repos.audit.insert({
           userId: user.id,
           username: user.username,
           ipAddress: clientIp,
@@ -513,7 +513,7 @@ export function createApiRouter(service: NexGasMqttService = mqttService): Route
           error: (err as Error).message,
         });
 
-        repos.audit.insert({
+        await repos.audit.insert({
           userId: user.id,
           username: user.username,
           ipAddress: clientIp,

@@ -33,7 +33,7 @@ export async function authenticate(
   try {
     const payload = await verifyAccessToken(token);
     const repos = getRepositories();
-    const user = repos.user.findById(Number(payload.sub));
+    const user = await repos.user.findById(Number(payload.sub));
 
     if (!user || !user.isActive) {
       res.status(401).json({

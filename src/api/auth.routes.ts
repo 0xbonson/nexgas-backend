@@ -87,7 +87,7 @@ export function createAuthRouter(): Router {
     const { username, password } = parseResult.data;
     const clientIp = req.ip || req.socket.remoteAddress || "unknown";
 
-    const userWithPw = repos.user.findByUsername(username);
+    const userWithPw = await repos.user.findByUsername(username);
 
     // Constant-time mitigation against user enumeration / timing attacks:
     // If user does not exist, run a dummy Argon2id verification with a valid hash
@@ -97,7 +97,7 @@ export function createAuthRouter(): Router {
         password,
       );
 
-      repos.audit.insert({
+      await repos.audit.insert({
         username,
         ipAddress: clientIp,
         action: "auth:login",
@@ -114,7 +114,7 @@ export function createAuthRouter(): Router {
     }
 
     if (!userWithPw.isActive) {
-      repos.audit.insert({
+      await repos.audit.insert({
         userId: userWithPw.id,
         username: userWithPw.username,
         ipAddress: clientIp,
@@ -133,7 +133,7 @@ export function createAuthRouter(): Router {
 
     const isMatch = await verifyPassword(userWithPw.passwordHash, password);
     if (!isMatch) {
-      repos.audit.insert({
+      await repos.audit.insert({
         userId: userWithPw.id,
         username: userWithPw.username,
         ipAddress: clientIp,
@@ -165,7 +165,7 @@ export function createAuthRouter(): Router {
       Date.now() + config.JWT_REFRESH_EXPIRATION_DAYS * 24 * 60 * 60 * 1000,
     ).toISOString();
 
-    repos.refreshSession.createSession({
+    await repos.refreshSession.createSession({
       userId: userWithPw.id,
       tokenHash: refreshTokenHash,
       familyId,
@@ -183,7 +183,7 @@ export function createAuthRouter(): Router {
     });
 
     // 4. Record audit log
-    repos.audit.insert({
+    await repos.audit.insert({
       userId: userWithPw.id,
       username: userWithPw.username,
       ipAddress: clientIp,
@@ -226,10 +226,10 @@ export function createAuthRouter(): Router {
     }
 
     const tokenHash = hashToken(rawRefreshToken);
-    const session = repos.refreshSession.findByTokenHash(tokenHash);
+    const session = await repos.refreshSession.findByTokenHash(tokenHash);
 
     if (!session) {
-      repos.audit.insert({
+      await repos.audit.insert({
         ipAddress: clientIp,
         action: "auth:refresh",
         resource: "session",
@@ -251,9 +251,9 @@ export function createAuthRouter(): Router {
         userId: session.userId,
       });
 
-      repos.refreshSession.revokeFamily(session.familyId);
+      await repos.refreshSession.revokeFamily(session.familyId);
 
-      repos.audit.insert({
+      await repos.audit.insert({
         userId: session.userId,
         ipAddress: clientIp,
         action: "auth:token_reuse",
@@ -279,7 +279,7 @@ export function createAuthRouter(): Router {
 
     // Check expiration
     if (new Date(session.expiresAt).getTime() < Date.now()) {
-      repos.refreshSession.revokeSession(tokenHash);
+      await repos.refreshSession.revokeSession(tokenHash);
       res.status(401).json({
         error: "Unauthorized",
         message: "Refresh token has expired. Please log in again.",
@@ -288,9 +288,9 @@ export function createAuthRouter(): Router {
     }
 
     // Verify user is still active
-    const user = repos.user.findById(session.userId);
+    const user = await repos.user.findById(session.userId);
     if (!user || !user.isActive) {
-      repos.refreshSession.revokeSession(tokenHash);
+      await repos.refreshSession.revokeSession(tokenHash);
       res.status(401).json({
         error: "Unauthorized",
         message: "User account is disabled or no longer exists",
@@ -305,9 +305,9 @@ export function createAuthRouter(): Router {
       Date.now() + config.JWT_REFRESH_EXPIRATION_DAYS * 24 * 60 * 60 * 1000,
     ).toISOString();
 
-    repos.refreshSession.revokeSession(tokenHash, newTokenHash);
+    await repos.refreshSession.revokeSession(tokenHash, newTokenHash);
 
-    repos.refreshSession.createSession({
+    await repos.refreshSession.createSession({
       userId: user.id,
       tokenHash: newTokenHash,
       familyId: session.familyId,
@@ -329,7 +329,7 @@ export function createAuthRouter(): Router {
       maxAge: config.JWT_REFRESH_EXPIRATION_DAYS * 24 * 60 * 60 * 1000,
     });
 
-    repos.audit.insert({
+    await repos.audit.insert({
       userId: user.id,
       username: user.username,
       ipAddress: clientIp,
@@ -350,13 +350,13 @@ export function createAuthRouter(): Router {
   // --------------------------------------------------------------------------
   // POST /api/auth/logout
   // --------------------------------------------------------------------------
-  router.post("/logout", (req: Request, res: Response) => {
+  router.post("/logout", async (req: Request, res: Response) => {
     const rawRefreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
     const clientIp = req.ip || req.socket.remoteAddress || "unknown";
 
     if (rawRefreshToken && typeof rawRefreshToken === "string") {
       const tokenHash = hashToken(rawRefreshToken);
-      repos.refreshSession.revokeSession(tokenHash);
+      await repos.refreshSession.revokeSession(tokenHash);
     }
 
     res.clearCookie("refreshToken", {
@@ -367,7 +367,7 @@ export function createAuthRouter(): Router {
       path: "/api/auth",
     });
 
-    repos.audit.insert({
+    await repos.audit.insert({
       userId: req.user?.id ?? null,
       username: req.user?.username ?? null,
       ipAddress: clientIp,

@@ -88,6 +88,11 @@ export class AuditRepository {
     };
   }
 
+  public count(): number {
+    const countRow = this.stmtCount.get() as { count: number };
+    return countRow.count;
+  }
+
   public getLogs(limit = 50, offset = 0): { items: AuditLogEntry[]; total: number } {
     const rows = this.stmtList.all(limit, offset) as AuditLogRow[];
     const countRow = this.stmtCount.get() as { count: number };

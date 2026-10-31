@@ -72,10 +72,29 @@ describe("NexGasWebSocketGateway", () => {
 
       ws.on("message", (data) => {
         const msg = JSON.parse(data.toString());
-        expect(msg.type).toBe("pong");
-        expect(msg.timestamp).toBeDefined();
-        ws.close();
-        resolve();
+        if (msg.type === "pong") {
+          expect(msg.timestamp).toBeDefined();
+          ws.close();
+          resolve();
+        }
+      });
+
+      ws.on("error", reject);
+    });
+  });
+
+  it("pushes initial device status to client upon connection", async () => {
+    const ws = new WebSocket(wsUrl);
+
+    await new Promise<void>((resolve, reject) => {
+      ws.on("message", (data) => {
+        const msg = JSON.parse(data.toString());
+        if (msg.type === "status") {
+          expect(msg.deviceId).toBe("nexgas-001");
+          expect(msg.data?.status).toBeDefined();
+          ws.close();
+          resolve();
+        }
       });
 
       ws.on("error", reject);
@@ -89,6 +108,8 @@ describe("NexGasWebSocketGateway", () => {
       ws.on("open", () => {
         const telemetryPayload: NormalizedTelemetry = {
           deviceId: "nexgas-001",
+          isSynthetic: false,
+          dataSource: "REAL_HARDWARE",
           deviceTimestamp: "2026-10-30T10:00:00.000Z",
           receivedAt: new Date().toISOString(),
           rawTimestamp: 1730282400,
@@ -160,6 +181,8 @@ describe("NexGasWebSocketGateway", () => {
       ws.on("open", () => {
         const statePayload: NormalizedDeviceState = {
           deviceId: "nexgas-001",
+          isSynthetic: false,
+          dataSource: "REAL_HARDWARE",
           receivedAt: new Date().toISOString(),
           uptimeMs: 150000,
           valveOpen: true,
@@ -202,6 +225,8 @@ describe("NexGasWebSocketGateway", () => {
         const statusPayload: NormalizedDeviceStatus = {
           deviceId: "nexgas-001",
           status: "online",
+          isSynthetic: false,
+          dataSource: "REAL_HARDWARE",
           receivedAt: new Date().toISOString(),
         };
 
@@ -210,7 +235,7 @@ describe("NexGasWebSocketGateway", () => {
 
       ws.on("message", (data) => {
         const msg = JSON.parse(data.toString());
-        if (msg.type === "status") {
+        if (msg.type === "status" && msg.data?.status === "online") {
           expect(msg.deviceId).toBe("nexgas-001");
           expect(msg.data.status).toBe("online");
           ws.close();
@@ -229,6 +254,8 @@ describe("NexGasWebSocketGateway", () => {
       ws.on("open", () => {
         const eventPayload: NormalizedDeviceEvent = {
           deviceId: "nexgas-001",
+          isSynthetic: false,
+          dataSource: "REAL_HARDWARE",
           deviceTimestamp: "2026-10-30T10:05:00.000Z",
           receivedAt: new Date().toISOString(),
           uptimeMs: 180000,

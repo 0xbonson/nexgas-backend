@@ -79,21 +79,104 @@ export async function bootstrapAdmin(
   return { id: user.id, username: user.username };
 }
 
+export async function bootstrapTursoAdmin(
+  client: import("@libsql/client").Client,
+  options?: BootstrapAdminOptions,
+): Promise<{ id: number; username: string }> {
+  const { runTursoMigrations } = await import("../db/turso/migrations.js");
+  const { UserTursoRepository } = await import("../db/turso/repositories/user.turso.repository.js");
+  const { AuditTursoRepository } = await import("../db/turso/repositories/audit.turso.repository.js");
+
+  await runTursoMigrations(client);
+  const userRepo = new UserTursoRepository(client);
+  const auditRepo = new AuditTursoRepository(client);
+
+  let username = options?.username?.trim();
+  let password = options?.password;
+
+  if (!username || !password) {
+    const rl = readline.createInterface({ input, output });
+    try {
+      if (!username) {
+        username = (await rl.question("Enter admin username [admin]: ")).trim() || "admin";
+      }
+      if (!password) {
+        password = await rl.question("Enter secure admin password (min 8 chars): ");
+      }
+    } finally {
+      rl.close();
+    }
+  }
+
+  if (!username || username.length < 3) {
+    throw new Error("Admin username must be at least 3 characters long");
+  }
+
+  if (!password || password.length < 8) {
+    throw new Error("Admin password must be at least 8 characters long");
+  }
+
+  const existingUser = await userRepo.findByUsername(username);
+  if (existingUser) {
+    throw new Error(
+      `Cannot bootstrap: user with username "${username}" already exists. Duplicate bootstrap rejected.`,
+    );
+  }
+
+  const passwordHash = await hashPassword(password);
+  const user = await userRepo.createUser({
+    username,
+    passwordHash,
+    role: "admin",
+    isActive: true,
+  });
+
+  await auditRepo.insert({
+    userId: user.id,
+    username: user.username,
+    ipAddress: "cli-local",
+    action: "auth:bootstrap_admin",
+    resource: "user",
+    details: { username: user.username, role: user.role },
+    status: "success",
+  });
+
+  logger.info(`Successfully bootstrapped Turso admin user "${user.username}" (ID: ${user.id})`);
+  return { id: user.id, username: user.username };
+}
+
 // Direct execution from CLI
 if (process.argv[1]?.endsWith("bootstrap-admin.ts") || process.argv[1]?.endsWith("bootstrap-admin.js")) {
-  const db = getDatabase();
   const cliUsername = process.argv[2];
   const cliPassword = process.argv[3];
+  const { config } = await import("../config/index.js");
 
-  bootstrapAdmin(db, { username: cliUsername, password: cliPassword })
-    .then((res) => {
-      console.log(`[NEX-GAS] Admin user "${res.username}" created successfully.`);
-      closeDatabase(db);
-      process.exit(0);
-    })
-    .catch((err) => {
-      console.error(`[NEX-GAS ERROR] ${(err as Error).message}`);
-      closeDatabase(db);
-      process.exit(1);
-    });
+  if (config.DATABASE_DRIVER === "turso") {
+    const { createTursoClient, closeTursoClient } = await import("../db/turso/client.js");
+    const client = createTursoClient();
+    bootstrapTursoAdmin(client, { username: cliUsername, password: cliPassword })
+      .then((res) => {
+        console.log(`[NEX-GAS] Admin user "${res.username}" created successfully in Turso.`);
+        closeTursoClient(client);
+        process.exit(0);
+      })
+      .catch((err) => {
+        console.error(`[NEX-GAS ERROR] ${(err as Error).message}`);
+        closeTursoClient(client);
+        process.exit(1);
+      });
+  } else {
+    const db = getDatabase();
+    bootstrapAdmin(db, { username: cliUsername, password: cliPassword })
+      .then((res) => {
+        console.log(`[NEX-GAS] Admin user "${res.username}" created successfully in SQLite.`);
+        closeDatabase(db);
+        process.exit(0);
+      })
+      .catch((err) => {
+        console.error(`[NEX-GAS ERROR] ${(err as Error).message}`);
+        closeDatabase(db);
+        process.exit(1);
+      });
+  }
 }

@@ -1,6 +1,8 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { Server } from "http";
 import { NexGasMqttService, mqttService } from "../mqtt/client.js";
+import { getRepositories } from "../db/index.js";
+import { config } from "../config/index.js";
 import { logger } from "../utils/logger.js";
 import {
   NormalizedTelemetry,
@@ -130,6 +132,49 @@ export class NexGasWebSocketGateway {
 
       const ip = req.socket.remoteAddress;
       logger.info(`WebSocket client connected from ${ip}`);
+
+      // Immediately push latest known device status from database to newly connected client
+      (async () => {
+        try {
+          const repos = getRepositories();
+          const defaultDeviceId = config.DEFAULT_DEVICE_ID;
+          const currentStatus = await repos.status.getCurrent(defaultDeviceId);
+
+          if (currentStatus) {
+            client.send(
+              JSON.stringify({
+                type: "status",
+                deviceId: currentStatus.deviceId,
+                isSynthetic: currentStatus.isSynthetic,
+                dataSource: currentStatus.dataSource,
+                receivedAt: currentStatus.receivedAt,
+                data: currentStatus,
+              }),
+            );
+          } else {
+            client.send(
+              JSON.stringify({
+                type: "status",
+                deviceId: defaultDeviceId,
+                isSynthetic: false,
+                dataSource: "REAL_HARDWARE",
+                receivedAt: new Date().toISOString(),
+                data: {
+                  deviceId: defaultDeviceId,
+                  status: "offline",
+                  isSynthetic: false,
+                  dataSource: "REAL_HARDWARE",
+                  receivedAt: new Date().toISOString(),
+                },
+              }),
+            );
+          }
+        } catch (err) {
+          logger.debug("Could not send initial device status to WebSocket client", {
+            error: (err as Error).message,
+          });
+        }
+      })();
 
       client.on("pong", () => {
         client.isAlive = true;
