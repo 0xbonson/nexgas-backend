@@ -27,7 +27,7 @@ export const configSchema = z.object({
   PUBLIC_MQTT_TEST_MODE: z
     .string()
     .optional()
-    .default("true")
+    .default("false")
     .transform((val) => val === "true"),
   DB_PATH: z.string().default("./data/nexgas.sqlite"),
   DATABASE_DRIVER: z.enum(["sqlite", "turso"]).default("turso"),
