@@ -29,12 +29,13 @@ async function bootstrap() {
       // 5. Connect MQTT broker if auto-connect is enabled
       if (config.MQTT_CONNECT_ON_STARTUP) {
         const isPublicMode = Boolean(config.PUBLIC_MQTT_TEST_MODE);
+        const isPublicBroker =
+          config.MQTT_HOST === "broker.hivemq.com" ||
+          config.MQTT_HOST.includes("broker.");
         const isPlaceholder =
-          !isPublicMode &&
-          (!config.MQTT_HOST ||
-            config.MQTT_HOST.includes("your-cluster-id") ||
-            !config.MQTT_USERNAME ||
-            !config.MQTT_PASSWORD);
+          !config.MQTT_HOST ||
+          config.MQTT_HOST.includes("your-cluster-id") ||
+          (!isPublicBroker && (!config.MQTT_USERNAME || !config.MQTT_PASSWORD));
 
         if (isPlaceholder) {
           logger.warn(
