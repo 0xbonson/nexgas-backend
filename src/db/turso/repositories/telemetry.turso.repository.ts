@@ -157,6 +157,14 @@ export class TelemetryTursoRepository implements ITelemetryRepository {
     return Number(res.rows[0]?.count ?? 0);
   }
 
+  public async deleteOlderThan(cutoffIso: string): Promise<number> {
+    const res = await this.client.execute({
+      sql: "DELETE FROM telemetry_history WHERE received_at < ?",
+      args: [cutoffIso],
+    });
+    return Number(res.rowsAffected ?? 0);
+  }
+
   private mapRowToDomain(row: Row): NormalizedTelemetry {
     let rawParsed: RawTelemetryPayload | undefined;
     const rawPayload = row.raw_payload as string | null;

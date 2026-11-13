@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import { getRepositories } from "../db/index.js";
 import { config } from "../config/index.js";
 import { verifyPassword, generateSecureToken, hashToken } from "../utils/crypto.js";
-import { signAccessToken } from "../utils/jwt.js";
+import { signAccessToken, getAccessTokenExpiresInSeconds } from "../utils/jwt.js";
 import { logger } from "../utils/logger.js";
 
 const loginSchema = z.object({
@@ -19,6 +19,11 @@ const refreshBodySchema = z.object({
 interface LoginRateLimitRecord {
   timestamps: number[];
 }
+
+// Valid Argon2id hash of a throwaway password. Used for the dummy verify that
+// keeps "user not found" and "wrong password" response times identical.
+const DUMMY_PASSWORD_HASH =
+  "$argon2id$v=19$m=19456,t=2,p=1$Hq4NEzaQFc+NvdpIzYdUDw$6W2DFb+dhPhFWvQSqL8y6D4JrgkopcgcGIbY9ndNhhk";
 
 const loginAttempts = new Map<string, LoginRateLimitRecord>();
 
@@ -58,8 +63,19 @@ export function loginRateLimiter(req: Request, res: Response, next: () => void):
     return;
   }
 
-  record.timestamps.push(now);
   next();
+}
+
+/**
+ * Records a failed login attempt. Successful logins do not consume the quota,
+ * so normal re-login does not lock the account out.
+ */
+export function recordLoginFailure(req: Request): void {
+  const clientKey = req.ip || req.socket.remoteAddress || "global";
+  const now = Date.now();
+  const record = loginAttempts.get(clientKey) ?? { timestamps: [] };
+  record.timestamps.push(now);
+  loginAttempts.set(clientKey, record);
 }
 
 export function resetLoginRateLimits(): void {
@@ -92,10 +108,8 @@ export function createAuthRouter(): Router {
     // Constant-time mitigation against user enumeration / timing attacks:
     // If user does not exist, run a dummy Argon2id verification with a valid hash
     if (!userWithPw) {
-      await verifyPassword(
-        "$argon2id$v=19$m=19456,t=2,p=1$7438493829482938492839$abcdefghijklmnopqrstuvwx",
-        password,
-      );
+      await verifyPassword(DUMMY_PASSWORD_HASH, password);
+      recordLoginFailure(req);
 
       await repos.audit.insert({
         username,
@@ -114,6 +128,7 @@ export function createAuthRouter(): Router {
     }
 
     if (!userWithPw.isActive) {
+      recordLoginFailure(req);
       await repos.audit.insert({
         userId: userWithPw.id,
         username: userWithPw.username,
@@ -133,6 +148,7 @@ export function createAuthRouter(): Router {
 
     const isMatch = await verifyPassword(userWithPw.passwordHash, password);
     if (!isMatch) {
+      recordLoginFailure(req);
       await repos.audit.insert({
         userId: userWithPw.id,
         username: userWithPw.username,
@@ -202,7 +218,7 @@ export function createAuthRouter(): Router {
       },
       accessToken,
       refreshToken: rawRefreshToken,
-      expiresIn: 900, // 15 minutes in seconds
+      expiresIn: getAccessTokenExpiresInSeconds(),
     });
   });
 
@@ -305,7 +321,25 @@ export function createAuthRouter(): Router {
       Date.now() + config.JWT_REFRESH_EXPIRATION_DAYS * 24 * 60 * 60 * 1000,
     ).toISOString();
 
-    await repos.refreshSession.revokeSession(tokenHash, newTokenHash);
+    // Atomic claim: only the first caller can revoke this token. Two tabs
+    // refreshing at once can no longer both rotate and trigger a false reuse alarm.
+    const claimed = await repos.refreshSession.revokeSession(tokenHash, newTokenHash);
+    if (!claimed) {
+      await repos.audit.insert({
+        userId: session.userId,
+        ipAddress: clientIp,
+        action: "auth:token_reuse",
+        resource: "session",
+        details: { familyId: session.familyId, reason: "concurrent_rotation" },
+        status: "rejected",
+      });
+
+      res.status(401).json({
+        error: "Unauthorized",
+        message: "Refresh token was already used. Please retry with the latest session.",
+      });
+      return;
+    }
 
     await repos.refreshSession.createSession({
       userId: user.id,
@@ -343,7 +377,7 @@ export function createAuthRouter(): Router {
       status: "success",
       accessToken: newAccessToken,
       refreshToken: newRawRefreshToken,
-      expiresIn: 900,
+      expiresIn: getAccessTokenExpiresInSeconds(),
     });
   });
 

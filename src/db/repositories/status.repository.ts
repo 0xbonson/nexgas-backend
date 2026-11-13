@@ -72,6 +72,12 @@ export class StatusRepository {
     };
   }
 
+  public deleteOlderThan(cutoffIso: string): number {
+    return this.db
+      .prepare("DELETE FROM status_history WHERE received_at < ?")
+      .run(cutoffIso).changes;
+  }
+
   public getHistory(options: StatusQueryOptions = {}): {
     items: NormalizedDeviceStatus[];
     total: number;

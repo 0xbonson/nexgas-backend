@@ -109,6 +109,14 @@ export class StatusTursoRepository implements IStatusRepository {
     return Number(res.rows[0]?.count ?? 0);
   }
 
+  public async deleteOlderThan(cutoffIso: string): Promise<number> {
+    const res = await this.client.execute({
+      sql: "DELETE FROM status_history WHERE received_at < ?",
+      args: [cutoffIso],
+    });
+    return Number(res.rowsAffected ?? 0);
+  }
+
   private mapRowToDomain(row: Row): NormalizedDeviceStatus {
     const deviceId = String(row.device_id);
     const isSynthetic = isSyntheticDevice(deviceId);

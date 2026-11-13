@@ -15,6 +15,26 @@ export class StateTursoRepository implements IStateRepository {
     const phCalibratedInt = state.phCalibrated ? 1 : 0;
     const sensorsReadyInt = state.sensorsReady ? 1 : 0;
 
+    const prevRes = await this.client.execute({
+      sql: `SELECT valve_open, valve_mode, filter_warning, leak_warning, filter_health,
+                   pressure_calibrated, ph_calibrated, sensors_ready, buffered, firmware
+            FROM device_current_state WHERE device_id = ?`,
+      args: [state.deviceId],
+    });
+    const prev = prevRes.rows[0];
+    const changed =
+      !prev ||
+      Number(prev.valve_open) !== valveOpenInt ||
+      String(prev.valve_mode) !== state.valveMode ||
+      Number(prev.filter_warning) !== filterWarningInt ||
+      Number(prev.leak_warning) !== leakWarningInt ||
+      Number(prev.filter_health) !== state.filterHealth ||
+      Number(prev.pressure_calibrated) !== pressureCalibratedInt ||
+      Number(prev.ph_calibrated) !== phCalibratedInt ||
+      Number(prev.sensors_ready) !== sensorsReadyInt ||
+      Number(prev.buffered) !== state.buffered ||
+      String(prev.firmware) !== state.firmware;
+
     const upsertStmt = {
       sql: `
         INSERT INTO device_current_state (
@@ -86,8 +106,11 @@ export class StateTursoRepository implements IStateRepository {
       ],
     };
 
-    // Execute atomically via batch
-    await this.client.batch([upsertStmt, insertHistoryStmt], "write");
+    // Execute atomically via batch; history only logs real transitions.
+    await this.client.batch(
+      changed ? [upsertStmt, insertHistoryStmt] : [upsertStmt],
+      "write",
+    );
   }
 
   public async getCurrent(
@@ -156,6 +179,14 @@ export class StateTursoRepository implements IStateRepository {
       "SELECT COUNT(*) as count FROM state_history",
     );
     return Number(res.rows[0]?.count ?? 0);
+  }
+
+  public async deleteOlderThan(cutoffIso: string): Promise<number> {
+    const res = await this.client.execute({
+      sql: "DELETE FROM state_history WHERE received_at < ?",
+      args: [cutoffIso],
+    });
+    return Number(res.rowsAffected ?? 0);
   }
 
   private mapRowToDomain(row: Row): NormalizedDeviceState {

@@ -52,7 +52,7 @@ export class RefreshSessionRepository {
 
     this.stmtDeleteExpired = this.db.prepare(`
       DELETE FROM refresh_sessions
-      WHERE expires_at < ? AND (revoked_at IS NOT NULL OR replaced_by_hash IS NOT NULL)
+      WHERE expires_at < ?
     `);
   }
 
@@ -96,9 +96,10 @@ export class RefreshSessionRepository {
     return row ? this.mapRow(row) : null;
   }
 
-  public revokeSession(tokenHash: string, replacedByHash?: string): void {
+  public revokeSession(tokenHash: string, replacedByHash?: string): boolean {
     const now = new Date().toISOString();
-    this.stmtRevokeSession.run(now, replacedByHash || null, tokenHash);
+    const info = this.stmtRevokeSession.run(now, replacedByHash || null, tokenHash);
+    return info.changes > 0;
   }
 
   public revokeFamily(familyId: string): void {

@@ -58,9 +58,9 @@ export class RefreshSessionTursoRepository implements IRefreshSessionRepository 
   public async revokeSession(
     tokenHash: string,
     replacedByHash?: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const now = new Date().toISOString();
-    await this.client.execute({
+    const res = await this.client.execute({
       sql: `
         UPDATE refresh_sessions
         SET revoked_at = ?, replaced_by_hash = ?
@@ -68,6 +68,7 @@ export class RefreshSessionTursoRepository implements IRefreshSessionRepository 
       `,
       args: [now, replacedByHash || null, tokenHash],
     });
+    return Number(res.rowsAffected ?? 0) > 0;
   }
 
   public async revokeFamily(familyId: string): Promise<void> {
@@ -99,7 +100,7 @@ export class RefreshSessionTursoRepository implements IRefreshSessionRepository 
     const res = await this.client.execute({
       sql: `
         DELETE FROM refresh_sessions
-        WHERE expires_at < ? AND (revoked_at IS NOT NULL OR replaced_by_hash IS NOT NULL)
+        WHERE expires_at < ?
       `,
       args: [now],
     });

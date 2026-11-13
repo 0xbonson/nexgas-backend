@@ -22,6 +22,7 @@ export interface ITelemetryRepository {
   getLatest(deviceId: string): Promise<NormalizedTelemetry | null>;
   getHistory(options?: TelemetryQueryOptions): Promise<{ items: NormalizedTelemetry[]; total: number }>;
   count?(): Promise<number>;
+  deleteOlderThan(cutoffIso: string): Promise<number>;
 }
 
 export interface IStateRepository {
@@ -29,6 +30,7 @@ export interface IStateRepository {
   getCurrent(deviceId: string): Promise<NormalizedDeviceState | null>;
   getHistory(options?: StateQueryOptions): Promise<{ items: NormalizedDeviceState[]; total: number }>;
   countHistory?(): Promise<number>;
+  deleteOlderThan(cutoffIso: string): Promise<number>;
 }
 
 export interface IStatusRepository {
@@ -36,6 +38,7 @@ export interface IStatusRepository {
   getCurrent(deviceId: string): Promise<NormalizedDeviceStatus | null>;
   getHistory(options?: StatusQueryOptions): Promise<{ items: NormalizedDeviceStatus[]; total: number }>;
   countHistory?(): Promise<number>;
+  deleteOlderThan(cutoffIso: string): Promise<number>;
 }
 
 export interface IEventRepository {
@@ -59,7 +62,7 @@ export interface IUserRepository {
 export interface IRefreshSessionRepository {
   createSession(input: CreateRefreshSessionInput): Promise<RefreshSession>;
   findByTokenHash(tokenHash: string): Promise<RefreshSession | null>;
-  revokeSession(tokenHash: string, replacedByHash?: string): Promise<void>;
+  revokeSession(tokenHash: string, replacedByHash?: string): Promise<boolean>;
   revokeFamily(familyId: string): Promise<void>;
   revokeAllForUser(userId: number): Promise<void>;
   deleteExpired(): Promise<number>;

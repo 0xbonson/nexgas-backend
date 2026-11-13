@@ -10,9 +10,9 @@ export const configSchema = z.object({
   PORT: z.coerce.number().int().positive().default(5001),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
-  MQTT_HOST: z.string().default("your-cluster-id.s1.eu.hivemq.cloud"),
-  MQTT_PORT: z.coerce.number().int().positive().default(8883),
-  MQTT_PROTOCOL: z.enum(["mqtts", "mqtt", "ws", "wss"]).default("mqtts"),
+  MQTT_HOST: z.string().default("broker.hivemq.com"),
+  MQTT_PORT: z.coerce.number().int().positive().default(1883),
+  MQTT_PROTOCOL: z.enum(["mqtts", "mqtt", "ws", "wss"]).default("mqtt"),
   MQTT_USERNAME: z.string().optional().default(""),
   MQTT_PASSWORD: z.string().optional().default(""),
   MQTT_CLIENT_ID_PREFIX: z.string().default("nexgas-backend"),
@@ -22,18 +22,28 @@ export const configSchema = z.object({
   MQTT_CONNECT_ON_STARTUP: z
     .string()
     .optional()
+    .default("true")
     .transform((val) => val === "true"),
   PUBLIC_MQTT_TEST_MODE: z
     .string()
     .optional()
+    .default("true")
     .transform((val) => val === "true"),
   DB_PATH: z.string().default("./data/nexgas.sqlite"),
-  DATABASE_DRIVER: z.enum(["sqlite", "turso"]).default("sqlite"),
-  TURSO_DATABASE_URL: z.string().optional(),
-  TURSO_AUTH_TOKEN: z.string().optional(),
+  DATABASE_DRIVER: z.enum(["sqlite", "turso"]).default("turso"),
+  TURSO_DATABASE_URL: z
+    .string()
+    .default("libsql://nexgas-db-0xbonson.aws-ap-southeast-1.turso.io"),
+  TURSO_AUTH_TOKEN: z
+    .string()
+    .default(
+      "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTM0NTIzNDAsImlkIjoiMDFhMTkxZmItMmEwMS03ZTcyLWEzNGMtNWQ0YWNlNWY0NmFjIiwia2lkIjoiR3ZsLV8xRFRhcVU3OW9FV2NBN0ltakFzaWRjX1I3MXFWd05oa0FpYVZCWSIsInJpZCI6IjM2NGIzMGQzLWE2NGYtNDUxNi04NGFmLWU5OTEwNzJjMjE1MCJ9.25XX4-mbrdO4iUo17DDzatbCFnjTUfGDNsw8Cv2meGWJnWF1CfYfoi0AMUFpH8uih4cKdPikNZv_IdRTYQEaCg"
+    ),
   CORS_ALLOWED_ORIGINS: z
     .string()
-    .default("http://localhost:3000,http://127.0.0.1:3000,https://nex-gas.github.io"),
+    .default(
+      "http://localhost:3000,http://127.0.0.1:3000,https://nex-gas.github.io,*.vercel.app,https://nex-gas.vercel.app,https://nexgas.vercel.app"
+    ),
   RATE_LIMIT_COMMAND_MAX: z.coerce.number().int().positive().default(10),
   RATE_LIMIT_COMMAND_WINDOW_MS: z.coerce.number().int().positive().default(10000),
   JWT_SECRET: z
@@ -50,6 +60,7 @@ export const configSchema = z.object({
   COOKIE_DOMAIN: z.string().optional(),
   RATE_LIMIT_LOGIN_MAX: z.coerce.number().int().positive().default(5),
   RATE_LIMIT_LOGIN_WINDOW_MS: z.coerce.number().int().positive().default(60000),
+  DATA_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;
@@ -85,14 +96,23 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     COOKIE_DOMAIN: env.COOKIE_DOMAIN,
     RATE_LIMIT_LOGIN_MAX: env.RATE_LIMIT_LOGIN_MAX,
     RATE_LIMIT_LOGIN_WINDOW_MS: env.RATE_LIMIT_LOGIN_WINDOW_MS,
+    DATA_RETENTION_DAYS: env.DATA_RETENTION_DAYS,
   });
+
+  const knownPlaceholderSecrets = [
+    /^generate_a_secure/i,
+    /^your[_-]/i,
+    /changeme/i,
+    /placeholder/i,
+  ];
 
   if (
     parsed.NODE_ENV === "production" &&
-    parsed.JWT_SECRET === "nexgas-default-dev-secret-key-32-chars-minimum!"
+    (parsed.JWT_SECRET === "nexgas-default-dev-secret-key-32-chars-minimum!" ||
+      knownPlaceholderSecrets.some((pattern) => pattern.test(parsed.JWT_SECRET)))
   ) {
     throw new Error(
-      "FATAL: In production, JWT_SECRET must be explicitly configured with a strong secret (not the default dev key).",
+      "FATAL: In production, JWT_SECRET must be explicitly configured with a strong secret (not a default or placeholder value).",
     );
   }
 

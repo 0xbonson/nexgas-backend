@@ -13,6 +13,17 @@ function getJwtSecretKey(): Uint8Array {
   return new TextEncoder().encode(secret);
 }
 
+/** Converts a jose-style duration ("900s", "15m", "1h", "7d") to seconds. */
+export function getAccessTokenExpiresInSeconds(): number {
+  const raw = config.JWT_ACCESS_EXPIRATION.trim();
+  const match = /^(\d+)([smhd])?$/.exec(raw);
+  if (!match) return 900;
+  const value = Number(match[1]);
+  const unit = match[2] ?? "s";
+  const factor = unit === "m" ? 60 : unit === "h" ? 3600 : unit === "d" ? 86400 : 1;
+  return value * factor;
+}
+
 /**
  * Sign a short-lived access token (~15m).
  */

@@ -392,7 +392,7 @@ describe("Turso Cloud libSQL Integration & Migration Suite", () => {
                (2, 'imported_viewer', 'hash_viewer', 'viewer', 1, '2026-10-31T00:00:00Z', '2026-10-31T00:00:00Z');
 
         INSERT INTO refresh_sessions (id, user_id, token_hash, family_id, expires_at, created_at)
-        VALUES (1, 1, 'token_1', 'fam_1', '2026-11-01T00:00:00Z', '2026-10-31T00:00:00Z');
+        VALUES (1, 1, 'token_1', 'fam_1', '2030-01-01T00:00:00Z', '2026-10-31T00:00:00Z');
 
         INSERT INTO audit_logs (id, user_id, username, ip_address, action, status, created_at)
         VALUES (1, 1, 'imported_admin', '127.0.0.1', 'auth:login', 'success', '2026-10-31T00:00:00Z');

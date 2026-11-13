@@ -8,6 +8,10 @@ import { logger } from "./utils/logger.js";
 export function createApp(service: NexGasMqttService = mqttService): Express {
   const app = express();
 
+  // One proxy hop in front of the app (Render/Railway). Without this, req.ip is
+  // the proxy address and all clients share one rate-limit bucket.
+  app.set("trust proxy", 1);
+
   // Security & parsing middleware
   app.use(corsMiddleware);
   app.use(express.json({ limit: "100kb" }));

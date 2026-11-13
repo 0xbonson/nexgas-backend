@@ -31,6 +31,7 @@ interface StateRow {
 export class StateRepository {
   private upsertCurrentStmt: Statement;
   private insertHistoryStmt: Statement;
+  private selectCurrentStmt: Statement;
 
   constructor(private db: Database) {
     this.upsertCurrentStmt = this.db.prepare(`
@@ -69,6 +70,45 @@ export class StateRepository {
         @buffered, @uptime_ms, @firmware, @received_at
       )
     `);
+
+    this.selectCurrentStmt = this.db.prepare(`
+      SELECT valve_open, valve_mode, filter_warning, leak_warning, filter_health,
+             pressure_calibrated, ph_calibrated, sensors_ready, buffered, uptime_ms, firmware
+      FROM device_current_state WHERE device_id = ?
+    `);
+  }
+
+  /** History is a transition log: unchanged 30s heartbeats are not stored. */
+  private hasChanged(params: {
+    device_id: string;
+    valve_open: number;
+    valve_mode: string;
+    filter_warning: number;
+    leak_warning: number;
+    filter_health: number;
+    pressure_calibrated: number;
+    ph_calibrated: number;
+    sensors_ready: number;
+    buffered: number;
+    uptime_ms: number;
+    firmware: string;
+  }): boolean {
+    const prev = this.selectCurrentStmt.get(params.device_id) as
+      | Record<string, string | number>
+      | undefined;
+    if (!prev) return true;
+    return (
+      prev.valve_open !== params.valve_open ||
+      prev.valve_mode !== params.valve_mode ||
+      prev.filter_warning !== params.filter_warning ||
+      prev.leak_warning !== params.leak_warning ||
+      prev.filter_health !== params.filter_health ||
+      prev.pressure_calibrated !== params.pressure_calibrated ||
+      prev.ph_calibrated !== params.ph_calibrated ||
+      prev.sensors_ready !== params.sensors_ready ||
+      prev.buffered !== params.buffered ||
+      prev.firmware !== params.firmware
+    );
   }
 
   public save(state: NormalizedDeviceState): void {
@@ -90,11 +130,18 @@ export class StateRepository {
     };
 
     const runTx = this.db.transaction(() => {
+      const changed = this.hasChanged(params);
       this.upsertCurrentStmt.run(params);
-      this.insertHistoryStmt.run(params);
+      if (changed) this.insertHistoryStmt.run(params);
     });
 
     runTx();
+  }
+
+  public deleteOlderThan(cutoffIso: string): number {
+    return this.db
+      .prepare("DELETE FROM state_history WHERE received_at < ?")
+      .run(cutoffIso).changes;
   }
 
   public getCurrent(deviceId: string): NormalizedDeviceState | null {

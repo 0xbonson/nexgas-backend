@@ -45,6 +45,10 @@ export class SqliteTelemetryAdapter implements ITelemetryRepository {
   public async getHistory(options: TelemetryQueryOptions = {}): Promise<{ items: NormalizedTelemetry[]; total: number }> {
     return this.syncRepo.getHistory(options);
   }
+
+  public async deleteOlderThan(cutoffIso: string): Promise<number> {
+    return this.syncRepo.deleteOlderThan(cutoffIso);
+  }
 }
 
 export class SqliteStateAdapter implements IStateRepository {
@@ -61,6 +65,10 @@ export class SqliteStateAdapter implements IStateRepository {
   public async getHistory(options: StateQueryOptions = {}): Promise<{ items: NormalizedDeviceState[]; total: number }> {
     return this.syncRepo.getHistory(options);
   }
+
+  public async deleteOlderThan(cutoffIso: string): Promise<number> {
+    return this.syncRepo.deleteOlderThan(cutoffIso);
+  }
 }
 
 export class SqliteStatusAdapter implements IStatusRepository {
@@ -76,6 +84,10 @@ export class SqliteStatusAdapter implements IStatusRepository {
 
   public async getHistory(options: StatusQueryOptions = {}): Promise<{ items: NormalizedDeviceStatus[]; total: number }> {
     return this.syncRepo.getHistory(options);
+  }
+
+  public async deleteOlderThan(cutoffIso: string): Promise<number> {
+    return this.syncRepo.deleteOlderThan(cutoffIso);
   }
 }
 
@@ -142,8 +154,8 @@ export class SqliteRefreshSessionAdapter implements IRefreshSessionRepository {
     return this.syncRepo.findByTokenHash(tokenHash);
   }
 
-  public async revokeSession(tokenHash: string, replacedByHash?: string): Promise<void> {
-    this.syncRepo.revokeSession(tokenHash, replacedByHash);
+  public async revokeSession(tokenHash: string, replacedByHash?: string): Promise<boolean> {
+    return this.syncRepo.revokeSession(tokenHash, replacedByHash);
   }
 
   public async revokeFamily(familyId: string): Promise<void> {

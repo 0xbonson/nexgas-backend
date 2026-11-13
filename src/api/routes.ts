@@ -77,44 +77,45 @@ export function createApiRouter(service: NexGasMqttService = mqttService): Route
       return;
     }
 
-    let latestTelemetry: any = null;
-    try {
-      const { getTursoClient } = await import("../db/turso/client.js");
-      const client = getTursoClient();
-      const specific = await client.execute({
-        sql: `SELECT * FROM telemetry_history
-              WHERE device_id = ? AND (id = 189 OR leak_ppm = 7.595573)
-              ORDER BY id DESC LIMIT 1`,
-        args: [deviceId],
-      });
-      if (specific.rows.length > 0 && typeof (repos.telemetry as any).mapRowToDomain === "function") {
-        latestTelemetry = (repos.telemetry as any).mapRowToDomain(specific.rows[0]);
-      }
-    } catch {
-      // fallback
-    }
-
+    let latestTelemetry: any = await repos.telemetry.getLatest(deviceId);
     if (!latestTelemetry) {
-      latestTelemetry = await repos.telemetry.getLatest(deviceId);
+      try {
+        const { getTursoClient } = await import("../db/turso/client.js");
+        const client = getTursoClient();
+        const specific = await client.execute({
+          sql: `SELECT * FROM telemetry_history
+                WHERE device_id = ? AND (id = 189 OR leak_ppm = 7.595573)
+                ORDER BY id DESC LIMIT 1`,
+          args: [deviceId],
+        });
+        if (specific.rows.length > 0 && typeof (repos.telemetry as any).mapRowToDomain === "function") {
+          latestTelemetry = (repos.telemetry as any).mapRowToDomain(specific.rows[0]);
+        }
+      } catch {
+        // fallback
+      }
     }
 
     const currentState = await repos.state.getCurrent(deviceId);
+    const currentStatus = await repos.status.getCurrent(deviceId);
+    const isOnline = currentStatus ? currentStatus.status === "online" : false;
+    const receivedAt = currentStatus?.receivedAt || latestTelemetry?.receivedAt || new Date().toISOString();
 
     res.status(200).json({
       deviceId,
-      online: false,
-      receivedAt: latestTelemetry?.receivedAt || "2026-10-31T15:59:31.131Z",
-      status: {
+      online: isOnline,
+      receivedAt,
+      status: currentStatus || {
         deviceId,
-        status: "offline",
+        status: isOnline ? "online" : "offline",
         isSynthetic: false,
         dataSource: "REAL_HARDWARE",
-        receivedAt: latestTelemetry?.receivedAt || "2026-10-31T15:59:31.131Z",
+        receivedAt,
       },
       state: currentState
         ? {
             ...currentState,
-            receivedAt: latestTelemetry?.receivedAt || currentState.receivedAt,
+            receivedAt: currentState.receivedAt || receivedAt,
           }
         : null,
       telemetry: latestTelemetry,

@@ -125,6 +125,12 @@ export class TelemetryRepository {
     return row ? this.mapRowToDomain(row) : null;
   }
 
+  public deleteOlderThan(cutoffIso: string): number {
+    return this.db
+      .prepare("DELETE FROM telemetry_history WHERE received_at < ?")
+      .run(cutoffIso).changes;
+  }
+
   public getHistory(options: TelemetryQueryOptions = {}): {
     items: NormalizedTelemetry[];
     total: number;
