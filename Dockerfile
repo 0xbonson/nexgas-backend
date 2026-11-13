@@ -1,7 +1,10 @@
 # Multi-stage production build for NEX-GAS Backend
-FROM node:20-slim AS builder
+FROM node:22-bookworm-slim AS builder
 
 WORKDIR /app
+
+# Install build dependencies for native modules (better-sqlite3)
+RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 
 # Copy dependency manifests
 COPY package*.json tsconfig.json ./
@@ -16,9 +19,12 @@ COPY src/ ./src/
 RUN npm run build
 
 # Production runtime stage
-FROM node:20-slim AS runner
+FROM node:22-bookworm-slim AS runner
 
 WORKDIR /app
+
+# Install build tools for native dependencies in production
+RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production
 ENV PORT=5001
